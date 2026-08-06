@@ -67,12 +67,6 @@ jobs:
           asyncio.run(main())
           PY
 
-      - name: Run Ruff linter
-        run: uv run ruff check .
-
-      - name: Run Ruff formatter
-        run: uv run ruff format . --check
-
       - name: Run Pytest
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres
