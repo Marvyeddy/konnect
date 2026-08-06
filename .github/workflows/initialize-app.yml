@@ -1,6 +1,7 @@
 name: "initialize the app with pytest and ruff"
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -33,7 +34,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -41,7 +42,7 @@ jobs:
           python-version: "3.13"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v9.0.0
+        uses: astral-sh/setup-uv@v6
 
       - name: Install dependencies with uv
         run: uv sync --frozen
