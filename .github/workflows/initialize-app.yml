@@ -1,11 +1,7 @@
 name: "initialize the app with pytest and ruff"
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
-  pull_request:
     branches:
       - main
 
