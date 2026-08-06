@@ -1,0 +1,79 @@
+name: "initialize the app with pytest and ruff"
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test_and_lint:
+    runs-on: ubuntu-24.04 
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+
+      - name: Install dependencies with uv
+        run: uv sync --frozen
+
+      - name: Create test database
+        run: |
+          uv run python - <<'PY'
+          import asyncio
+          import asyncpg
+
+
+          async def main():
+              conn = await asyncpg.connect(
+                  "postgresql://postgres:postgres@localhost:5432/postgres"
+              )
+              try:
+                  await conn.execute("CREATE DATABASE postgres_test")
+              finally:
+                  await conn.close()
+
+
+          asyncio.run(main())
+          PY
+
+      - name: Run Ruff linter
+        run: uv run ruff check .
+
+      - name: Run Ruff formatter
+        run: uv run ruff format . --check
+
+      - name: Run Pytest
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres
+          TEST_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres_test
+        run: uv run pytest
