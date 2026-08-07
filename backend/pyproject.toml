@@ -23,3 +23,10 @@ dev = [
     "pytest-mock>=3.15.1",
     "ruff>=0.16.1",
 ]
+
+[tool.ruff.lint]
+# "E" and "F" are standard Python errors. "I" is the isort import sorter.
+select = ["E", "F", "I"]
+
+# Automatically fix import sorting rules on check/fix commands
+fixable = ["I"]

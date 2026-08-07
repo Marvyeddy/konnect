@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from guard import SecurityConfig, SecurityMiddleware
 
 from backend.middleware import require_middleware
+from backend.routers.auth import auth_router
 
 version = "v1"
 app = FastAPI(
@@ -21,3 +22,6 @@ app.add_middleware(SecurityMiddleware, config=config)
 @app.get("/")
 async def root():
     return {"message": "Konnect started"}
+
+
+app.include_router(auth_router, prefix=f"/api/{version}/auth", tags=["auth"])

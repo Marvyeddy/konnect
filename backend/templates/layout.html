@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ subject }}{% endblock %}</title>
+  </head>
+  <body style="margin: 0; padding: 0; background-color: #f4f7fb; font-family: 'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif, sans-serif; color: #1f2937;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width: 100%; background-color: #f4f7fb; padding: 32px 16px;">
+      <tr>
+        <td style="text-align: center;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width: 100%; max-width: 600px; background-color: #ffffff; border-radius: 8px; overflow: hidden;">
+            <tr>
+              <td style="background-color: #cb4e4ec0; padding: 24px 28px;">
+                <p style="margin: 0; color: #ffffff; font-size: 20px; font-weight: 700;">
+                  {{ app_name | default("Konnect") }}
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 32px 28px; line-height: 1.6;">
+                {% block content %}{% endblock %}
+              </td>
+            </tr>
+            <tr>
+              <td style="border-top: 1px solid #e5e7eb; padding: 20px 28px; color: #6b7280; font-size: 13px; line-height: 1.5;">
+                <p style="margin: 0;">
+                  Happy Hunting,<br>
+                  {{ app_name | default("Konnect") }} Team
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
