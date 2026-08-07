@@ -67,4 +67,8 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres
           TEST_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres_test
+          MAIL_USERNAME: test_user
+          MAIL_PASSWORD: test_password
+          MAIL_FROM: test@example.com
+          MAIL_FROM_NAME: Test
         run: uv run pytest
