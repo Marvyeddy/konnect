@@ -1,4 +1,9 @@
 from fastapi import FastAPI
+from guard import SecurityConfig
+from guard.middleware import SecurityMiddleware
+
+from backend.errors import require_error
+from backend.middleware import require_middleware
 
 version = "v1"
 
@@ -15,6 +20,13 @@ app = FastAPI(
     },
     license_info={"name": "MIT License", "url": "https://opensource.org/licenses/MIT"},
 )
+
+require_middleware(app)
+require_error(app)
+
+security_config = SecurityConfig(enable_redis=False, enable_rate_limiting=True)
+
+app.add_middleware(SecurityMiddleware, config=security_config)
 
 
 @app.get("/")

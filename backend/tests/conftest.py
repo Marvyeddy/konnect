@@ -1,5 +1,5 @@
 import pytest_asyncio
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlalchemy.ext.asyncio.engine import create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -15,9 +15,9 @@ async def async_engine() -> AsyncEngine:
     engine = create_async_engine(
         url=cfg.TEST_DB_URL,
         echo=True,
-        future=True,
         pool_pre_ping=True,
     )
+
     yield engine
 
     await engine.dispose()
@@ -31,9 +31,9 @@ async def session(async_engine) -> AsyncSession:
         expire_on_commit=False,
         autoflush=False,
     )
+
     async with Session() as session:
         yield session
-
         await session.rollback()
 
 
@@ -41,19 +41,27 @@ async def session(async_engine) -> AsyncSession:
 async def test_db(async_engine):
     async with async_engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
+
     try:
         yield
     finally:
-        # Drop all tables after the test run
         async with async_engine.begin() as conn:
             await conn.run_sync(SQLModel.metadata.drop_all)
 
 
 @pytest_asyncio.fixture()
-async def client(session):
-    app.dependency_overrides[get_session] = lambda: session
+async def client(session) -> AsyncClient:
+    async def override_get_session():
+        yield session
 
-    with TestClient(app) as client:
-        yield client
+    app.dependency_overrides[get_session] = override_get_session
+
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://localhost",
+    ) as ac:
+        yield ac
 
     app.dependency_overrides.clear()
