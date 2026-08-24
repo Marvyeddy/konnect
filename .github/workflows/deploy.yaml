@@ -54,5 +54,8 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://testuser:testpass@localhost:5432/testdb
           TEST_DB_URL: postgresql+asyncpg://testuser:testpass@localhost:5432/testdb
+          JWT_KEY: dummy-key-for-testing
+          JWT_ALG: HS256
+     
         run: |
           uv run pytest -v
