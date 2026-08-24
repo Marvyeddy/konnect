@@ -2,9 +2,11 @@ import logging
 import sys
 import threading
 from logging.handlers import TimedRotatingFileHandler
+from pathlib import Path
 from typing import ClassVar, Self
 
-DEFAULT_LOG_FILE = "backend/logs/backend.log"
+DEFAULT_LOG_DIR = Path(__file__).resolve().parents[1] / "logs"
+DEFAULT_LOG_FILE = DEFAULT_LOG_DIR / "backend.log"
 DEFAULT_LOG_LEVEL = logging.INFO
 DEFAULT_LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(lineno)d | %(message)s"
 
@@ -40,6 +42,7 @@ class LogManager:
             isinstance(handler, TimedRotatingFileHandler)
             for handler in root_logger.handlers
         ):
+            DEFAULT_LOG_DIR.mkdir(parents=True, exist_ok=True)
             file_handler = TimedRotatingFileHandler(
                 DEFAULT_LOG_FILE,
                 when="midnight",
