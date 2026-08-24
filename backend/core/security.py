@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from argon2 import PasswordHasher
@@ -18,7 +18,7 @@ logger = get_app_logger(__name__)
 def create_token(data: dict, token_type: str, expiry: int):
     data_copy = data.copy()
 
-    expiry_period = datetime.now(tz=True) + timedelta(seconds=expiry)
+    expiry_period = datetime.now(UTC) + timedelta(seconds=expiry)
 
     data_copy.update({"type": token_type, "exp": expiry_period})
 

@@ -11,6 +11,14 @@ class KonnectException(Exception):
     """Konnect main exception"""
 
 
+class UserAlreadyExists(KonnectException):
+    """User already exists"""
+
+
+class UserCredentialInvalid(KonnectException):
+    """Credentials are wrong"""
+
+
 def create_exception_handler(
     status_code: int, detail: Any
 ) -> Callable[[Request, Exception], JSONResponse]:
@@ -40,3 +48,25 @@ def require_error(app: FastAPI):
             },
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+    app.add_exception_handler(
+        UserAlreadyExists,
+        create_exception_handler(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "User with credential already exists",
+                "error": "user_already_exists",
+            },
+        ),
+    )
+
+    app.add_exception_handler(
+        UserCredentialInvalid,
+        create_exception_handler(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "message": "User credential invalid",
+                "error": "credential_invalid",
+            },
+        ),
+    )

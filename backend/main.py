@@ -4,6 +4,7 @@ from guard.middleware import SecurityMiddleware
 
 from backend.errors import require_error
 from backend.middleware import require_middleware
+from backend.routers.auth import auth_router
 
 version = "v1"
 
@@ -32,3 +33,6 @@ app.add_middleware(SecurityMiddleware, config=security_config)
 @app.get("/")
 async def root():
     return {"message": "Welcome to the konnect app"}
+
+
+app.include_router(auth_router, prefix="/api/{version}/auth", tags=["Auth"])

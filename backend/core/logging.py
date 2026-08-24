@@ -5,7 +5,7 @@ from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from typing import ClassVar, Self
 
-DEFAULT_LOG_DIR = Path(__file__).resolve().parents[1] / "logs"
+DEFAULT_LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
 DEFAULT_LOG_FILE = DEFAULT_LOG_DIR / "backend.log"
 DEFAULT_LOG_LEVEL = logging.INFO
 DEFAULT_LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(lineno)d | %(message)s"

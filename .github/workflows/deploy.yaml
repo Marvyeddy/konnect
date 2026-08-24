@@ -56,6 +56,9 @@ jobs:
           TEST_DB_URL: postgresql+asyncpg://testuser:testpass@localhost:5432/testdb
           JWT_KEY: dummy-key-for-testing
           JWT_ALG: HS256
-     
+          MAIL_PASSWORD: random-password
+          MAIL_USERNAME: randomemail@gmail.com
+          MAIL_FROM: randomemail@gmail.com
+          MAIL_FROM_NAME: App-name
         run: |
           uv run pytest -v

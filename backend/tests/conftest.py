@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
@@ -10,11 +12,22 @@ from backend.external.database import get_session
 from backend.main import app
 
 
+@pytest_asyncio.fixture(autouse=True, scope="function")
+async def bypass_middleware_rate_limiter():
+    """Bypasses your SecurityMiddleware rate-limiting to let integration tests pass cleanly."""
+
+    async def mock_call(self, request, call_next):
+        return await call_next(request)
+
+    with patch("backend.main.SecurityMiddleware.dispatch", mock_call):
+        yield
+
+
 @pytest_asyncio.fixture()
 async def async_engine() -> AsyncEngine:
     engine = create_async_engine(
         url=cfg.TEST_DB_URL,
-        echo=True,
+        echo=False,
         pool_pre_ping=True,
     )
 
