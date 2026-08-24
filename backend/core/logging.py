@@ -4,7 +4,7 @@ import threading
 from logging.handlers import TimedRotatingFileHandler
 from typing import ClassVar, Self
 
-DEFAULT_LOG_FILE = "backend.log"
+DEFAULT_LOG_FILE = "backend/logs/backend.log"
 DEFAULT_LOG_LEVEL = logging.INFO
 DEFAULT_LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(lineno)d | %(message)s"
 
