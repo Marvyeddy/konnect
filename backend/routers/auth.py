@@ -5,11 +5,22 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.constants.main import REFRESH_EXPIRY_TOKEN, SESSION_EXPIRY_TOKEN
-from backend.core.security import create_refresh_token, create_session_token, verify_pwd
-from backend.errors import UserAlreadyExists, UserCredentialInvalid
+from backend.core.security import (
+    create_refresh_token,
+    create_session_token,
+    create_url_safe_token,
+    decode_url_safe_token,
+    hash_pwd,
+    verify_pwd,
+)
+from backend.errors import (
+    ConfirmPasswordException,
+    UserAlreadyExists,
+    UserCredentialInvalid,
+)
 from backend.external.database import get_session
 from backend.external.email import send_email
-from backend.schemas.auth import UserIn, UserLogin
+from backend.schemas.auth import ResetIn, UserIn, UserLogin
 from backend.services.auth import AuthService
 
 auth_router = APIRouter()
@@ -137,3 +148,68 @@ async def login_user(
     )
 
     return response
+
+
+@auth_router.post("/forget-password")
+async def forget_password(
+    bg_tasks: BackgroundTasks,
+    email: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+):
+    user = await auth_service.get_user_by_email(email, session)
+
+    if user:
+        token = create_url_safe_token({"email": email})
+        link = f"http://localhost:3000/reset-password/{token}"
+
+        context = {
+            "subject": "Reset your password",
+            "link": link,
+        }
+
+        bg_tasks.add_task(
+            send_email,
+            subject=context["subject"],
+            recipients=[email],
+            template_name="reset_password.html",
+            context=context,
+        )
+
+    return JSONResponse(
+        content={
+            "message": "If an account with that email exists, a password reset link has been sent."
+        },
+        status_code=status.HTTP_200_OK,
+    )
+
+
+@auth_router.post("/reset-password/{token}")
+async def reset_password(
+    token: str,
+    reset_data: ResetIn,
+    session: Annotated[AsyncSession, Depends(get_session)],
+):
+    token_data = decode_url_safe_token(token)
+    if not token_data or "email" not in token_data:
+        raise UserCredentialInvalid
+
+    email = token_data["email"]
+    user = await auth_service.get_user_by_email(email, session)
+
+    if not user:
+        raise UserCredentialInvalid
+
+    new_password = reset_data.new_password
+    confirm_password = reset_data.confirm_password
+
+    if confirm_password != new_password:
+        raise ConfirmPasswordException
+
+    await auth_service.update_user(
+        user.id, {"password": hash_pwd(new_password)}, session
+    )
+
+    return JSONResponse(
+        content={"message": "Password reset successfully"},
+        status_code=status.HTTP_200_OK,
+    )

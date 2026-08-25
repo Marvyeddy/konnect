@@ -3,6 +3,8 @@ from datetime import UTC, datetime, timedelta
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
+from itsdangerous import URLSafeTimedSerializer
+from itsdangerous.exc import BadTimeSignature
 
 from backend.constants.main import REFRESH_EXPIRY_TOKEN, SESSION_EXPIRY_TOKEN
 
@@ -49,3 +51,25 @@ def verify_pwd(password: str, hash: str) -> bool:
     except VerifyMismatchError as e:
         logger.error("Password verification failed: %s", str(e))
         return False
+
+
+# ----------------------------------
+# TOKENIZATION OF CREDENTIALS
+# ----------------------------------
+serializer = URLSafeTimedSerializer(secret_key=cfg.JWT_KEY, salt="serialized_token")
+
+
+def create_url_safe_token(data: dict):
+    token = serializer.dumps(data)
+    return token
+
+
+def decode_url_safe_token(token: str) -> dict:
+    try:
+        token_data = serializer.loads(token)
+
+        return token_data
+
+    except BadTimeSignature as e:
+        logger.error("Failed to decode url safe token: %s", str(e))
+        return None

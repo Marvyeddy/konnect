@@ -19,6 +19,10 @@ class UserCredentialInvalid(KonnectException):
     """Credentials are wrong"""
 
 
+class ConfirmPasswordException(KonnectException):
+    """New password and confirm password do not match"""
+
+
 def create_exception_handler(
     status_code: int, detail: Any
 ) -> Callable[[Request, Exception], JSONResponse]:
@@ -67,6 +71,17 @@ def require_error(app: FastAPI):
             detail={
                 "message": "User credential invalid",
                 "error": "credential_invalid",
+            },
+        ),
+    )
+
+    app.add_exception_handler(
+        ConfirmPasswordException,
+        create_exception_handler(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": "New password and confirm password do not match.",
+                "error": "confirm_password_error",
             },
         ),
     )
