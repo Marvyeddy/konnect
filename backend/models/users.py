@@ -29,9 +29,22 @@ class Users(SQLModel, table=True):
             pg.TEXT, nullable=False, index=True, server_default=sa.text("'user'")
         ),
     )
+    google_id: str | None = Field(
+        default=None,
+        sa_column=Column(
+            pg.TEXT,
+            nullable=True,
+            unique=True,
+            index=True,
+        ),
+    )
+    auth_provider: str = Field(
+        default="local",
+        sa_column=Column(pg.TEXT, nullable=False, server_default=sa.text("'local'")),
+    )
     is_active: bool = Field(
-        default=False,
-        sa_column=Column(pg.BOOLEAN, nullable=False, server_default=sa.false()),
+        default=True,
+        sa_column=Column(pg.BOOLEAN, nullable=False, server_default=sa.true()),
     )
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),

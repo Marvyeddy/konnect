@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from guard import SecurityConfig
 from guard.middleware import SecurityMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 from backend.errors import require_error
 from backend.middleware import require_middleware
@@ -26,6 +27,13 @@ require_middleware(app)
 require_error(app)
 
 security_config = SecurityConfig(enable_redis=False, enable_rate_limiting=True)
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key="8307760cd31789496c79a3801170c7c4578887628b04c3a12aa13cf32366c073",
+    same_site="lax",
+    https_only=False,
+)
 
 app.add_middleware(SecurityMiddleware, config=security_config)
 

@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     MAIL_PASSWORD: str
     MAIL_FROM: str
     MAIL_FROM_NAME: str
+    GOOGLE_CLIENT_ID: str
+    GOOGLE_CLIENT_SECRET: str
+    GOOGLE_REDIRECT_URI: str
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore"
