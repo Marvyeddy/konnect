@@ -132,23 +132,21 @@ async def login_user(
     logger.info(f"Login attempt for email: {email}")
 
     user = await auth_service.get_user_by_email(email, session)
-
     if user is None:
         logger.warning(f"Login failed: Invalid credentials for email: {email}")
         raise UserCredentialInvalid
 
-    password_valid = verify_pwd(password, user.password)
-
-    if not password_valid:
+    if not verify_pwd(password, user.password):
         logger.warning(f"Login failed: Incorrect password for email: {email}")
         raise UserCredentialInvalid
+
+    await auth_service.update_user(user.id, {"auth_provider": "local"}, session)
 
     token_dict = {
         "sub": str(user.id),
         "email": user.email,
         "role": user.role,
     }
-
     session_token = create_session_token(token_dict)
     refresh_token = create_refresh_token(token_dict)
 
@@ -162,7 +160,6 @@ async def login_user(
             "refresh_token": refresh_token,
         },
     )
-
     response.set_cookie(
         key="session_token",
         value=session_token,
@@ -171,7 +168,6 @@ async def login_user(
         httponly=True,
         secure=False,
     )
-
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
