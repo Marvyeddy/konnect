@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import status
@@ -219,6 +219,106 @@ async def test_reset_password_fails_on_mismatched_confirmation(
     )
 
     assert response.status_code == 400
+
+
+# ============================================================================
+# 1. WEB LOGOUT TEST (COOKIES)
+# ============================================================================
+
+
+@pytest.mark.asyncio
+@patch("backend.routers.auth.add_token_to_blocklist", new_callable=AsyncMock)
+@patch("backend.routers.auth.decode_token")
+async def test_logout_web_success(mock_decode, mock_add_blocklist, client):
+    def mock_decode_side_effect(token):
+        if token == "web_session_cookie_val":
+            return {"type": "session"}
+        if token == "web_refresh_cookie_val":
+            return {"type": "refresh"}
+        return None
+
+    mock_decode.side_effect = mock_decode_side_effect
+    mock_add_blocklist.return_value = None
+
+    # Inject cookies directly into the test client
+    client.cookies.set("session_token", "web_session_cookie_val")
+    client.cookies.set("refresh_token", "web_refresh_cookie_val")
+
+    response = await client.get("/api/v1/auth/logout")
+
+    # Assertions
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {"message": "Logout successfully"}
+
+    # Verify BOTH tokens were sent to the blocklist with their correct respective expirations
+    assert mock_add_blocklist.call_count == 2
+    mock_add_blocklist.assert_any_call("web_session_cookie_val", ANY)
+    mock_add_blocklist.assert_any_call("web_refresh_cookie_val", ANY)
+
+    # Verify browser cookie removal instructions were sent back in the headers
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    assert any("session_token" in cookie for cookie in set_cookie_headers)
+    assert any("refresh_token" in cookie for cookie in set_cookie_headers)
+
+
+# ============================================================================
+# 2. MOBILE LOGOUT TEST (HEADERS)
+# ============================================================================
+
+
+@pytest.mark.asyncio
+@patch("backend.routers.auth.add_token_to_blocklist", new_callable=AsyncMock)
+@patch("backend.routers.auth.decode_token")
+async def test_logout_mobile_success(mock_decode, mock_add_blocklist, client):
+
+    def mock_decode_side_effect(token):
+        if token == "mobile_bearer_session_val":
+            return {"type": "session"}
+        if token == "mobile_custom_refresh_val":
+            return {"type": "refresh"}
+        return None
+
+    mock_decode.side_effect = mock_decode_side_effect
+    mock_add_blocklist.return_value = None
+
+    # Set up mobile headers
+    headers = {
+        "Authorization": "Bearer mobile_bearer_session_val",
+        "X-Refresh-Token": "mobile_custom_refresh_val",
+    }
+
+    response = await client.get("/api/v1/auth/logout", headers=headers)
+
+    # Assertions
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {"message": "Logout successfully"}
+
+    # Verify BOTH header tokens hit the blocklist
+    assert mock_add_blocklist.call_count == 2
+    mock_add_blocklist.assert_any_call("mobile_bearer_session_val", ANY)
+    mock_add_blocklist.assert_any_call("mobile_custom_refresh_val", ANY)
+
+
+# ============================================================================
+# 3. EDGE CASE: INVALID TOKEN TYPES DROPPED
+# ============================================================================
+
+
+@pytest.mark.asyncio
+@patch("backend.routers.auth.add_token_to_blocklist", new_callable=AsyncMock)
+@patch("backend.routers.auth.decode_token")
+async def test_logout_ignores_invalid_token_types(
+    mock_decode, mock_add_blocklist, client
+):
+    mock_decode.return_value = {"type": "unknown_or_swapped_type"}
+    mock_add_blocklist.return_value = None
+
+    headers = {"Authorization": "Bearer weird_token_type"}
+    response = await client.get("/api/v1/auth/logout", headers=headers)
+
+    assert response.status_code == status.HTTP_200_OK
+    # Ensure add_token_to_blocklist was NEVER called because types were invalid
+    mock_add_blocklist.assert_not_called()
 
 
 # -----------------------------

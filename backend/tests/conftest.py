@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -14,7 +14,6 @@ from backend.main import app
 
 @pytest_asyncio.fixture(autouse=True, scope="function")
 async def bypass_middleware_rate_limiter():
-    """Bypasses your SecurityMiddleware rate-limiting to let integration tests pass cleanly."""
 
     async def mock_call(self, request, call_next):
         return await call_next(request)
@@ -78,3 +77,15 @@ async def client(session) -> AsyncClient:
         yield ac
 
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture(autouse=True, scope="function")
+async def bypass_redis_globally():
+    mock_redis = AsyncMock()
+
+    mock_redis.get.return_value = None
+
+    mock_redis.set.return_value = True
+
+    with patch("backend.external.redis.redis", mock_redis):
+        yield mock_redis

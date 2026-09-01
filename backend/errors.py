@@ -23,6 +23,10 @@ class ConfirmPasswordException(KonnectException):
     """New password and confirm password do not match"""
 
 
+class TokenException(KonnectException):
+    """Token is missing"""
+
+
 def create_exception_handler(
     status_code: int, detail: Any
 ) -> Callable[[Request, Exception], JSONResponse]:
@@ -83,5 +87,13 @@ def require_error(app: FastAPI):
                 "message": "New password and confirm password do not match.",
                 "error": "confirm_password_error",
             },
+        ),
+    )
+
+    app.add_exception_handler(
+        TokenException,
+        create_exception_handler(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"message": "Token is missing", "error": "token_missing"},
         ),
     )

@@ -1,10 +1,12 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from itsdangerous import URLSafeTimedSerializer
 from itsdangerous.exc import BadTimeSignature
+from jwt.exceptions import InvalidSignatureError
 
 from backend.constants.main import REFRESH_EXPIRY_TOKEN, SESSION_EXPIRY_TOKEN
 
@@ -33,6 +35,21 @@ def create_session_token(data: dict):
 
 def create_refresh_token(data: dict):
     return create_token(data=data, token_type="refresh", expiry=REFRESH_EXPIRY_TOKEN)
+
+
+def decode_token(token: str) -> dict[str, Any]:
+    try:
+        token_data = jwt.decode(jwt=token, key=cfg.JWT_KEY, algorithms=[cfg.JWT_ALG])
+        return token_data
+    except InvalidSignatureError as e:
+        logger.error("Invalid signature decoding token: %s", str(e))
+        return None
+    except jwt.ExpiredSignatureError as e:
+        logger.error("Token has expired: %s", str(e))
+        return None
+    except jwt.DecodeError as e:
+        logger.error("Failed to decode token: %s", str(e))
+        return None
 
 
 # ----------------------

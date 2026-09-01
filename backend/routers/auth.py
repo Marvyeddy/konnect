@@ -1,8 +1,16 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from authlib.integrations.base_client import MismatchingStateError
 from authlib.integrations.starlette_client import OAuth
-from fastapi import APIRouter, BackgroundTasks, Depends, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Cookie,
+    Depends,
+    Header,
+    Response,
+    status,
+)
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +22,7 @@ from backend.core.security import (
     create_refresh_token,
     create_session_token,
     create_url_safe_token,
+    decode_token,
     decode_url_safe_token,
     hash_pwd,
     verify_pwd,
@@ -25,6 +34,7 @@ from backend.errors import (
 )
 from backend.external.database import get_session
 from backend.external.email import send_email
+from backend.external.redis import add_token_to_blocklist
 from backend.models.users import Users
 from backend.schemas.auth import ResetIn, UserIn, UserLogin
 from backend.services.auth import AuthService
@@ -258,6 +268,89 @@ async def reset_password(
         content={"message": "Password reset successfully"},
         status_code=status.HTTP_200_OK,
     )
+
+
+@auth_router.get("/logout")
+async def logout_user(
+    authorization: Annotated[str | None, Header()] = None,
+    x_refresh_token: Annotated[str | None, Header(alias="X-Refresh-Token")] = None,
+    session_cookie: Annotated[str | None, Cookie(alias="session_token")] = None,
+    refresh_cookie: Annotated[str | None, Cookie(alias="refresh_token")] = None,
+):
+    logger.info("Logout request received")
+    tokens_to_revoke: dict[str, Any] = {}
+
+    # ------ Authorization ------------
+
+    if authorization:
+        scheme, _, bearer_token = authorization.partition(" ")
+
+        if scheme.lower() == "bearer" and bearer_token:
+            token_data = decode_token(bearer_token)
+
+            if token_data:
+                token_type = token_data["type"]
+
+                if token_type == "session":
+                    tokens_to_revoke[bearer_token] = SESSION_EXPIRY_TOKEN
+                elif token_type == "refresh":
+                    logger.warning("Refresh token supplied as Authorization token")
+                else:
+                    logger.warning("Unknown token type supplied during logout")
+
+    # ------ Mobile Refresh Token -----------
+
+    if x_refresh_token:
+        token_data = decode_token(x_refresh_token)
+
+        if token_data:
+            token_type = token_data.get("type")
+
+            if token_type == "refresh":
+                tokens_to_revoke[x_refresh_token] = REFRESH_EXPIRY_TOKEN
+            else:
+                logger.warning("Invalid refresh token type supplied during logout")
+
+    # ------- SESSION COOKIE -----------
+
+    if session_cookie:
+        token_data = decode_token(session_cookie)
+
+        if token_data:
+            token_type = token_data["type"]
+
+            if token_type == "session":
+                tokens_to_revoke[session_cookie] = SESSION_EXPIRY_TOKEN
+
+    # --------- REFRESH COOKIE ------------
+
+    if refresh_cookie:
+        token_data = decode_token(refresh_cookie)
+
+        if token_data:
+            token_type = token_data["type"]
+
+            if token_type == "refresh":
+                tokens_to_revoke[refresh_cookie] = REFRESH_EXPIRY_TOKEN
+
+    for token, expiry in tokens_to_revoke.items():
+        await add_token_to_blocklist(token, expiry)
+
+    response = Response(
+        content='{"message": "Logout successfully"}',
+        media_type="application/json",
+        status_code=status.HTTP_200_OK,
+    )
+
+    response.delete_cookie(key="session_token")
+    response.delete_cookie(key="refresh_token")
+
+    logger.info(
+        "Logout successful. revoked_tokens=%s",
+        len(tokens_to_revoke),
+    )
+
+    return response
 
 
 # ---------------------------
