@@ -1,11 +1,14 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Optional
 
 import sqlalchemy as sa
 import sqlalchemy.dialects.postgresql as pg
-from sqlmodel import Column, Field, SQLModel
+from sqlmodel import Column, Field, Relationship, SQLModel
 
 from backend.constants.main import Roles
+from backend.models.user_profile import UserProfile
+from backend.models.vendor_profile import VendorProfile
 
 
 class Users(SQLModel, table=True):
@@ -61,6 +64,8 @@ class Users(SQLModel, table=True):
             onupdate=sa.func.now(),
         ),
     )
+    user_profile: Optional["UserProfile"] = Relationship(back_populates="user")
+    vendor_profile: Optional["VendorProfile"] = Relationship(back_populates="user")
 
     def __repr__(self):
         return f"<User email: {self.email} & username: {self.username}>"
