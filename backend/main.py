@@ -7,6 +7,7 @@ from backend.errors import require_error
 from backend.middleware import require_middleware
 from backend.routers.auth import auth_router
 from backend.routers.onboarding import onboarding_router
+from backend.routers.users import user_router
 
 version = "v1"
 
@@ -48,3 +49,4 @@ app.include_router(auth_router, prefix=f"/api/{version}/auth", tags=["Auth"])
 app.include_router(
     onboarding_router, prefix=f"/api/{version}/onboarding", tags=["Onboarding"]
 )
+app.include_router(user_router, prefix=f"/api/{version}/users", tags=["Users"])

@@ -2,13 +2,12 @@ import asyncio
 from logging.config import fileConfig
 
 from alembic import context
+from backend.core.config import config as cfg
+from backend.models import user_profile, users, vendor_profile  # noqa: F401
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlmodel import SQLModel
-
-from backend.core.config import config as cfg
-from backend.models import user_profile, users, vendor_profile  # noqa: F401
 
 database_url = cfg.DATABASE_URL
 
