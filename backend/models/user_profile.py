@@ -27,7 +27,7 @@ class UserProfile(SQLModel, table=True):
     user_id: uuid.UUID = Field(
         sa_column=Column(
             pg.UUID(as_uuid=True),
-            sa.ForeignKey("users.id"),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
             nullable=False,
             unique=True,
             index=True,  # Typically, foreign keys like user_id are indexed for join efficiency

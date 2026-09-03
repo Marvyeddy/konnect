@@ -6,6 +6,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from backend.errors import require_error
 from backend.middleware import require_middleware
 from backend.routers.auth import auth_router
+from backend.routers.onboarding import onboarding_router
 
 version = "v1"
 
@@ -43,4 +44,7 @@ async def root():
     return {"message": "Welcome to the konnect app"}
 
 
-app.include_router(auth_router, prefix="/api/{version}/auth", tags=["Auth"])
+app.include_router(auth_router, prefix=f"/api/{version}/auth", tags=["Auth"])
+app.include_router(
+    onboarding_router, prefix=f"/api/{version}/onboarding", tags=["Onboarding"]
+)

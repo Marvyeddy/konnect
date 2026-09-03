@@ -29,6 +29,7 @@ from backend.core.security import (
 )
 from backend.errors import (
     ConfirmPasswordException,
+    TokenException,
     UserAlreadyExists,
     UserCredentialInvalid,
 )
@@ -268,6 +269,81 @@ async def reset_password(
         content={"message": "Password reset successfully"},
         status_code=status.HTTP_200_OK,
     )
+
+
+@auth_router.get("/refresh")
+async def refresh_session_token(
+    authorization: Annotated[str | None, Header()] = None,
+    refresh_token: Annotated[str | None, Cookie(alias="refresh_token")] = None,
+    session: Annotated[AsyncSession | None, Depends(get_session)] = None,
+):
+    token = refresh_token
+
+    if not token and authorization:
+        scheme, _, bearer_token = authorization.partition(" ")
+        if scheme.lower() == "bearer" and bearer_token:
+            token = bearer_token
+
+    if not token:
+        logger.warning("No refresh token provided")
+        raise TokenException
+
+    token_data = decode_token(token)
+    if not token_data or "type" not in token_data or token_data["type"] != "refresh":
+        logger.warning("Invalid refresh token provided")
+        raise TokenException
+
+    token_data = decode_token(token)
+    if not token_data or "sub" not in token_data:
+        logger.warning("Invalid refresh token provided")
+        raise TokenException
+
+    user_id = token_data["sub"]
+    user = await auth_service.get_user_by_id(user_id, session)
+
+    if not user:
+        logger.warning(f"User not found for refresh token: {user_id}")
+        raise TokenException
+
+    new_token_dict = {
+        "sub": str(user.id),
+        "email": user.email,
+        "role": user.role,
+    }
+
+    new_session_token = create_session_token(new_token_dict)
+    new_refresh_token = create_refresh_token(new_token_dict)
+
+    logger.info(f"Session and refresh tokens refreshed for user id: {user.id}")
+
+    response = JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "message": "Session and refresh tokens refreshed",
+            "session_token": new_session_token,
+            "refresh_token": new_refresh_token,
+        },
+    )
+    response.set_cookie(
+        key="session_token",
+        value=new_session_token,
+        max_age=SESSION_EXPIRY_TOKEN,
+        samesite="Lax",
+        httponly=True,
+        secure=False,
+    )
+
+    response.set_cookie(
+        key="refresh_token",
+        value=new_refresh_token,
+        max_age=REFRESH_EXPIRY_TOKEN,
+        samesite="Lax",
+        httponly=True,
+        secure=False,
+    )
+
+    logger.info(f"Refresh tokens refreshed for user id: {user.id}")
+    return response
 
 
 @auth_router.get("/logout")

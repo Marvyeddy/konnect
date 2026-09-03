@@ -2,6 +2,7 @@ import uuid
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from backend.core.security import hash_pwd
 from backend.models.users import Users
@@ -12,14 +13,25 @@ class AuthService:
     async def get_user_by_id(
         self, id: uuid.UUID, session: AsyncSession
     ) -> Users | None:
-        statement = select(Users).where(Users.id == id)
+        statement = (
+            select(Users)
+            .where(Users.id == id)
+            .options(
+                joinedload(Users.user_profile),
+                joinedload(Users.vendor_profile),
+            )
+        )
         result = await session.execute(statement)
         return result.scalar_one_or_none()
 
     async def get_user_by_email(
         self, email: str, session: AsyncSession
     ) -> Users | None:
-        statement = select(Users).where(Users.email == email)
+        statement = (
+            select(Users)
+            .where(Users.email == email)
+            .options(joinedload(Users.user_profile), joinedload(Users.vendor_profile))
+        )
         result = await session.execute(statement)
         return result.scalar_one_or_none()
 

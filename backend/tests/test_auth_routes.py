@@ -321,6 +321,148 @@ async def test_logout_ignores_invalid_token_types(
     mock_add_blocklist.assert_not_called()
 
 
+# ============================================================================
+# 1. SUCCESS PATHS
+# ============================================================================
+
+
+@pytest.mark.asyncio
+@patch("backend.routers.auth.create_refresh_token")
+@patch("backend.routers.auth.create_session_token")
+@patch("backend.routers.auth.auth_service.get_user_by_id")
+@patch("backend.routers.auth.decode_token")
+async def test_refresh_token_success_via_cookie(
+    mock_decode, mock_get_user_by_id, mock_create_session, mock_create_refresh, client
+):
+    # 1. Mock token contents mapping directly to sub schema requirements
+    mock_decode.return_value = {"type": "refresh", "sub": "user-uuid-12345"}
+
+    # 2. Mock database user extraction matching model attributes
+    mock_user = MagicMock()
+    mock_user.id = "user-uuid-12345"
+    mock_user.email = "refreshinguser@gmail.com"
+    mock_user.role = "user"
+    mock_get_user_by_id.return_value = mock_user
+
+    # 3. Define clear string outputs for generated token assets
+    mock_create_session.return_value = "newly_minted_session_jwt"
+    mock_create_refresh.return_value = "newly_minted_refresh_jwt"
+
+    # Inject the token inside the client's cookie jar
+    client.cookies.set("refresh_token", "valid_stored_refresh_token")
+
+    response = await client.get("/api/v1/auth/refresh")
+
+    # Assertions
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["message"] == "Session and refresh tokens refreshed"
+    assert data["session_token"] == "newly_minted_session_jwt"
+    assert data["refresh_token"] == "newly_minted_refresh_jwt"
+
+    # Verify cookie modifications are attached inside headers
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    assert any(
+        "session_token=newly_minted_session_jwt" in cookie
+        for cookie in set_cookie_headers
+    )
+    assert any(
+        "refresh_token=newly_minted_refresh_jwt" in cookie
+        for cookie in set_cookie_headers
+    )
+
+
+@pytest.mark.asyncio
+@patch("backend.routers.auth.create_refresh_token")
+@patch("backend.routers.auth.create_session_token")
+@patch("backend.routers.auth.auth_service.get_user_by_id")
+@patch("backend.routers.auth.decode_token")
+async def test_refresh_token_success_via_bearer_header(
+    mock_decode, mock_get_user_by_id, mock_create_session, mock_create_refresh, client
+):
+    mock_decode.return_value = {"type": "refresh", "sub": "mobile-uuid-67890"}
+
+    mock_user = MagicMock()
+    mock_user.id = "mobile-uuid-67890"
+    mock_user.email = "mobileuser@gmail.com"
+    mock_user.role = "user"
+    mock_get_user_by_id.return_value = mock_user
+
+    mock_create_session.return_value = "mobile_new_session_jwt"
+    mock_create_refresh.return_value = "mobile_new_refresh_jwt"
+
+    headers = {"Authorization": "Bearer valid_bearer_refresh_token"}
+    response = await client.get("/api/v1/auth/refresh", headers=headers)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["session_token"] == "mobile_new_session_jwt"
+
+
+# ============================================================================
+# 2. FAILURE PATHS
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_fail_missing_token(client):
+    response = await client.get("/api/v1/auth/refresh")
+
+    assert response.status_code in (
+        status.HTTP_401_UNAUTHORIZED,
+        status.HTTP_400_BAD_REQUEST,
+    )
+
+
+@pytest.mark.asyncio
+@patch("backend.routers.auth.decode_token")
+async def test_refresh_token_fail_invalid_type_claim(mock_decode, client):
+    mock_decode.return_value = {"type": "session", "sub": "user-uuid-123"}
+
+    client.cookies.set("refresh_token", "wrong_type_token")
+    response = await client.get("/api/v1/auth/refresh")
+
+    assert response.status_code in (
+        status.HTTP_401_UNAUTHORIZED,
+        status.HTTP_400_BAD_REQUEST,
+    )
+
+
+@pytest.mark.asyncio
+@patch("backend.routers.auth.decode_token")
+async def test_refresh_token_fail_missing_subject_claim(mock_decode, client):
+    mock_decode.side_effect = [
+        {"type": "refresh"},  # Hits the first check
+        {"type": "refresh"},  # Hits the second check (no 'sub' key)
+    ]
+
+    client.cookies.set("refresh_token", "malformed_jwt_no_sub")
+    response = await client.get("/api/v1/auth/refresh")
+
+    assert response.status_code in (
+        status.HTTP_401_UNAUTHORIZED,
+        status.HTTP_400_BAD_REQUEST,
+    )
+
+
+@pytest.mark.asyncio
+@patch("backend.routers.auth.auth_service.get_user_by_id")
+@patch("backend.routers.auth.decode_token")
+async def test_refresh_token_fail_user_not_found(
+    mock_decode, mock_get_user_by_id, client
+):
+    mock_decode.return_value = {"type": "refresh", "sub": "deleted-user-uuid"}
+    # Simulate DB lookup returning None
+    mock_get_user_by_id.return_value = None
+
+    client.cookies.set("refresh_token", "valid_token_deleted_user")
+    response = await client.get("/api/v1/auth/refresh")
+
+    assert response.status_code in (
+        status.HTTP_401_UNAUTHORIZED,
+        status.HTTP_400_BAD_REQUEST,
+    )
+
+
 # -----------------------------
 # GOOGLE OAUTH TESTS
 # -----------------------------
