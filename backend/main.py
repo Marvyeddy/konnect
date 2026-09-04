@@ -1,8 +1,10 @@
+import cloudinary
 from fastapi import FastAPI
 from guard import SecurityConfig
 from guard.middleware import SecurityMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
+from backend.core.config import config as cfg
 from backend.errors import require_error
 from backend.middleware import require_middleware
 from backend.routers.auth import auth_router
@@ -38,6 +40,14 @@ app.add_middleware(
 )
 
 app.add_middleware(SecurityMiddleware, config=security_config)
+
+# cloudinary setup
+cloudinary.config(
+    cloud_name=cfg.CLOUDINARY_CLOUD_NAME,
+    api_key=cfg.CLOUDINARY_API_KEY,
+    api_secret=cfg.CLOUDINARY_API_SECRET,
+    secure=True,
+)
 
 
 @app.get("/")
