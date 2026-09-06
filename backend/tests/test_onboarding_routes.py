@@ -2,8 +2,8 @@ import json
 import uuid
 from unittest.mock import MagicMock, patch
 
-from cloudinary.exceptions import BadRequest
 import pytest
+from cloudinary.exceptions import BadRequest
 from fastapi import status
 
 from backend.dependencies import get_current_user

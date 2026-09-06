@@ -1,9 +1,8 @@
 import uuid
 from typing import Annotated
 
-from fastapi import Cookie, Depends, Header, HTTPException, status
+from fastapi import Cookie, Depends, Header, HTTPException, Query, status
 
-from backend.constants.main import Roles
 from backend.core.security import decode_token
 from backend.external.database import get_session
 from backend.external.redis import token_in_blocklist
@@ -16,6 +15,9 @@ auth_service = AuthService()
 async def get_current_user(
     authorization: Annotated[str | None, Header(...)] = None,
     session_token: Annotated[str | None, Cookie(alias="session_token")] = None,
+    token_query: Annotated[
+        str | None, Query(alias="token")
+    ] = None,  # because of SSE notification
     session: Annotated[str | None, Depends(get_session)] = None,
 ):
     token = session_token
@@ -25,6 +27,9 @@ async def get_current_user(
 
         if schemes.lower() == "bearer" and bearer_token:
             token = bearer_token
+
+    if not token and token_query:
+        token = token_query
 
     if token is None:
         raise HTTPException(
@@ -40,16 +45,16 @@ async def get_current_user(
 
     token_data = decode_token(token)
 
-    if token_data.get("type") != "session":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token type.",
-        )
-
     if token_data is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired or is invalid.",
+        )
+
+    if token_data.get("type") != "session":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token type.",
         )
 
     user_id = uuid.UUID(token_data["sub"])
@@ -73,16 +78,20 @@ async def get_user_role(
     return current_user.role
 
 
-class RoleChecker:
-    def __init__(self, allowed_roles: list[str]):
-        self.allowed_roles = allowed_roles
+async def get_user_permission(
+    current_user: Annotated[Users | None, Depends(get_current_user)] = None,
+):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
-    def __call__(
-        self, user_role: Annotated[Roles | None, Depends(get_user_role)] = None
-    ):
-        if user_role not in self.allowed_roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You do not have permission to access this resource.",
-            )
-        return user_role
+    permission = (
+        getattr(getattr(current_user, "user_profile", None), "permission_level", None)
+        if current_user
+        else None
+    )
+    if not current_user or not permission:
+        raise credentials_exception
+    return permission

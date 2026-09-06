@@ -6,6 +6,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from backend.core.config import config as cfg
 from backend.errors import require_error
+from backend.internal.admin import admin_router
 from backend.middleware import require_middleware
 from backend.routers.auth import auth_router
 from backend.routers.onboarding import onboarding_router
@@ -60,3 +61,4 @@ app.include_router(
     onboarding_router, prefix=f"/api/{version}/onboarding", tags=["Onboarding"]
 )
 app.include_router(user_router, prefix=f"/api/{version}/users", tags=["Users"])
+app.include_router(admin_router, prefix=f"/api/{version}/admin", tags=["Admin"])

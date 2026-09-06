@@ -6,14 +6,17 @@ from cloudinary.exceptions import BadRequest, Error
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.dependencies import get_current_user
 from backend.external.database import get_session
+from backend.models.notification import Notification
 from backend.models.user_profile import UserProfile
 from backend.models.users import Users
 from backend.models.vendor_profile import VendorProfile
 from backend.schemas.onboarding import VendorOnboarding
+from backend.services.sse_manager import notification_manager
 
 onboarding_router = APIRouter()
 
@@ -209,6 +212,42 @@ async def onboard_vendor(
     session.add(new_vendor)
     await session.commit()
     await session.refresh(new_vendor)
+
+    # =============================
+    # NOTIFICATION
+    # =============================
+
+    try:
+        admin_query = await session.execute(
+            select(Users.id).where(Users.role == "admin")
+        )
+        admin_ids = [str(row[0]) for row in admin_query.all()]
+
+        notifications_to_add = [
+            Notification(
+                user_id=admin_id,
+                title="New vendor verification required",
+                message=f"Vendor '{vendor_data.business_name}' has onboarded and requires document review.",
+                notification_type="VENDOR_ONBOARDING",
+                action_url=f"/admin/vendors/{new_vendor.id}",
+                is_read=False,
+            )
+            for admin_id in admin_ids
+        ]
+        session.add_all(notifications_to_add)
+        await session.commit()
+
+        live_payload = {
+            "title": "New Vendor Verification Required",
+            "message": f"Vendor '{vendor_data.business_name}' has onboarded and requires document review.",
+            "notification_type": "VENDOR_ONBOARDING",
+            "action_url": f"/admin/vendors/{new_vendor.id}",
+            "vendor_id": str(new_vendor.id),
+        }
+
+        await notification_manager.broadcast_to_admins(admin_ids, live_payload)
+    except Exception as log_err:  # noqa: BLE001
+        print(f"Notification broadcasting failed: {log_err}")
 
     return {
         "message": "Vendor onboarded successfully",
