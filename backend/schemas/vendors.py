@@ -36,5 +36,8 @@ class UserOut(BaseModel):
 
 
 class VendorUpdate(BaseModel):
-    username: str
-    password: str
+    username: str | None = None
+    password: str | None = None
+    full_name: str | None = None
+    phone_number: str | None = None
+    address: str | None = None

@@ -16,9 +16,11 @@ from backend.models.user_profile import UserProfile
 from backend.models.users import Users
 from backend.models.vendor_profile import VendorProfile
 from backend.schemas.onboarding import VendorOnboarding
+from backend.services.auth import AuthService
 from backend.services.sse_manager import notification_manager
 
 onboarding_router = APIRouter()
+auth_service = AuthService()
 
 
 @onboarding_router.post("/user")
@@ -207,9 +209,11 @@ async def onboard_vendor(
     new_vendor = VendorProfile(
         **vendor_data.model_dump(),
         user_id=current_user.id,
-        image_url=image_url,
-        business_license_url=license_url,
+        image=image_url,
+        business_licence=license_url,
     )
+
+    await auth_service.update_user(current_user.id, {"role": "pending"}, session)
 
     session.add(new_vendor)
     await session.commit()

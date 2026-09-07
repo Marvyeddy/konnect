@@ -3,6 +3,7 @@ from enum import Enum
 
 # MODEL ROLE
 class Roles(str, Enum):
+    PENDING = "pending"
     USER = "user"
     ADMIN = "admin"
     VENDOR = "vendor"
