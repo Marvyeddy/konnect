@@ -44,7 +44,7 @@ class VendorProfile(SQLModel, table=True):
             nullable=True,
         ),
     )
-    business_licence: str | None = Field(
+    business_license: str | None = Field(
         default=None,
         sa_column=Column(
             pg.TEXT,

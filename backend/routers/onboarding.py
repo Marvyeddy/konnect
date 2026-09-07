@@ -171,7 +171,8 @@ async def onboard_vendor(
             detail="Invalid business license extension. Only JPG, PNG, and PDF are allowed.",
         )
 
-    if business_license.size > 15 * 1024 * 1024:
+    license_bytes = await business_license.read()
+    if len(license_bytes) > 15 * 1024 * 1024:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Business license size is too large (Max 15MB)",
@@ -194,7 +195,7 @@ async def onboard_vendor(
 
         license_upload_result = await run_in_threadpool(
             cloudinary.uploader.upload,
-            business_license.file,
+            license_bytes,
             public_id=f"vendors/licenses/{base_lic_name}_{unique_id}",
             overwrite=True,
             resource_type="auto",
@@ -210,7 +211,7 @@ async def onboard_vendor(
         **vendor_data.model_dump(),
         user_id=current_user.id,
         image=image_url,
-        business_licence=license_url,
+        business_license=license_url,
     )
 
     await auth_service.update_user(current_user.id, {"role": "pending"}, session)
