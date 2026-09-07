@@ -41,7 +41,8 @@ async def onboard_user(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid file extension"
             )
 
-        if image.size > 10 * 1024 * 1024:
+        file_bytes = await image.read()
+        if len(file_bytes) > 10 * 1024 * 1024:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="File size is too large (Max 10MB)",
@@ -64,7 +65,7 @@ async def onboard_user(
 
             upload_result = await run_in_threadpool(
                 cloudinary.uploader.upload,
-                image.file,
+                file_bytes,
                 public_id=f"users/profiles/{base_filename}_{unique_id}",
                 overwrite=True,
             )
@@ -120,7 +121,8 @@ async def onboard_vendor(
                 detail="Invalid image file extension",
             )
 
-        if image.size > 10 * 1024 * 1024:
+        file_bytes = await image.read()
+        if len(file_bytes) > 10 * 1024 * 1024:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Image size is too large (Max 10MB)",
@@ -143,7 +145,7 @@ async def onboard_vendor(
 
             upload_result = await run_in_threadpool(
                 cloudinary.uploader.upload,
-                image.file,
+                file_bytes,
                 public_id=f"vendors/profiles/{base_img_name}_{unique_id}",
                 overwrite=True,
             )

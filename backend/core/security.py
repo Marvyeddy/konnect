@@ -86,7 +86,6 @@ def decode_url_safe_token(token: str) -> dict:
         token_data = serializer.loads(token)
 
         return token_data
-
     except BadTimeSignature as e:
         logger.error("Failed to decode url safe token: %s", str(e))
         return None

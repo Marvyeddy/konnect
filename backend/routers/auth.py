@@ -1,3 +1,4 @@
+import uuid
 from typing import Annotated, Any
 
 from authlib.integrations.base_client import MismatchingStateError
@@ -8,6 +9,7 @@ from fastapi import (
     Cookie,
     Depends,
     Header,
+    HTTPException,
     Response,
     status,
 )
@@ -27,6 +29,7 @@ from backend.core.security import (
     hash_pwd,
     verify_pwd,
 )
+from backend.dependencies import get_current_user
 from backend.errors import (
     ConfirmPasswordException,
     TokenException,
@@ -145,6 +148,12 @@ async def login_user(
     user = await auth_service.get_user_by_email(email, session)
     if user is None:
         logger.warning(f"Login failed: Invalid credentials for email: {email}")
+        raise UserCredentialInvalid
+
+    if user.password is None:
+        logger.warning(
+            f"Login failed: Attempted password login for SSO user (email: {email})"
+        )
         raise UserCredentialInvalid
 
     if not verify_pwd(password, user.password):
@@ -271,16 +280,17 @@ async def reset_password(
     )
 
 
-@auth_router.get("/refresh")
+@auth_router.post("/refresh")
 async def refresh_session_token(
     authorization: Annotated[str | None, Header()] = None,
     refresh_token: Annotated[str | None, Cookie(alias="refresh_token")] = None,
-    session: Annotated[AsyncSession | None, Depends(get_session)] = None,
+    session: Annotated[AsyncSession, Depends(get_session)] = None,
 ):
     token = refresh_token
 
     if not token and authorization:
         scheme, _, bearer_token = authorization.partition(" ")
+
         if scheme.lower() == "bearer" and bearer_token:
             token = bearer_token
 
@@ -289,16 +299,17 @@ async def refresh_session_token(
         raise TokenException
 
     token_data = decode_token(token)
-    if not token_data or "type" not in token_data or token_data["type"] != "refresh":
-        logger.warning("Invalid refresh token provided")
+
+    if not token_data:
+        logger.warning("Failed to decode refresh token")
         raise TokenException
 
-    token_data = decode_token(token)
-    if not token_data or "sub" not in token_data:
-        logger.warning("Invalid refresh token provided")
+    if token_data.get("type") != "refresh" or "sub" not in token_data:
+        logger.warning("Invalid refresh token provided or missing subject")
         raise TokenException
 
     user_id = token_data["sub"]
+
     user = await auth_service.get_user_by_id(user_id, session)
 
     if not user:
@@ -314,23 +325,21 @@ async def refresh_session_token(
     new_session_token = create_session_token(new_token_dict)
     new_refresh_token = create_refresh_token(new_token_dict)
 
-    logger.info(f"Session and refresh tokens refreshed for user id: {user.id}")
-
     response = JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
             "message": "Session and refresh tokens refreshed",
             "session_token": new_session_token,
-            "refresh_token": new_refresh_token,
         },
     )
+
     response.set_cookie(
         key="session_token",
         value=new_session_token,
         max_age=SESSION_EXPIRY_TOKEN,
         samesite="Lax",
         httponly=True,
-        secure=False,
+        secure=False,  # True in production
     )
 
     response.set_cookie(
@@ -339,10 +348,9 @@ async def refresh_session_token(
         max_age=REFRESH_EXPIRY_TOKEN,
         samesite="Lax",
         httponly=True,
-        secure=False,
+        secure=False,  # True in production
     )
 
-    logger.info(f"Refresh tokens refreshed for user id: {user.id}")
     return response
 
 
@@ -472,7 +480,7 @@ async def google_callback(
 
         if user:
             logger.info(f"Existing user with email {user_email} logging in via Google.")
-            google_dict = {"google_id": google_id, "auth_service": "google"}
+            google_dict = {"google_id": google_id, "auth_provider": "google"}
             await auth_service.update_user(user.id, google_dict, session)
         else:
             logger.info(f"Creating new user via Google with email: {user_email}")
@@ -593,3 +601,82 @@ async def google_callback(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"detail": "Internal server error. Please try again later."},
         )
+
+
+@auth_router.delete("/delete")
+async def delete_account(
+    authorization: Annotated[str | None, Header()] = None,
+    x_refresh_token: Annotated[str | None, Header(alias="X-Refresh-Token")] = None,
+    session_cookie: Annotated[str | None, Cookie(alias="session_token")] = None,
+    refresh_cookie: Annotated[str | None, Cookie(alias="refresh_token")] = None,
+    current_user: Annotated[Users | None, Depends(get_current_user)] = None,
+    session: Annotated[AsyncSession | None, Depends(get_session)] = None,
+):
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to access this resource.",
+        )
+
+    user_id = uuid.UUID(str(current_user.id))
+
+    # 2. Delete the user from the database first
+    deleted = await auth_service.delete_user(user_id, session)
+
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found or already deleted.",
+        )
+
+    # 3. Blocklist processing (Mirrors your /logout logic)
+    logger.info("Processing token blocklist for deleted user: %s", user_id)
+    tokens_to_revoke: dict[str, Any] = {}
+
+    # ------ Authorization Header ------------
+    if authorization:
+        scheme, _, bearer_token = authorization.partition(" ")
+        if scheme.lower() == "bearer" and bearer_token:
+            token_data = decode_token(bearer_token)
+            if token_data and token_data.get("type") == "session":
+                tokens_to_revoke[bearer_token] = SESSION_EXPIRY_TOKEN
+
+    # ------ Mobile Refresh Token Header -----------
+    if x_refresh_token:
+        token_data = decode_token(x_refresh_token)
+        if token_data and token_data.get("type") == "refresh":
+            tokens_to_revoke[x_refresh_token] = REFRESH_EXPIRY_TOKEN
+
+    # ------- SESSION COOKIE -----------
+    if session_cookie:
+        token_data = decode_token(session_cookie)
+        if token_data and token_data.get("type") == "session":
+            tokens_to_revoke[session_cookie] = SESSION_EXPIRY_TOKEN
+
+    # --------- REFRESH COOKIE ------------
+    if refresh_cookie:
+        token_data = decode_token(refresh_cookie)
+        if token_data and token_data.get("type") == "refresh":
+            tokens_to_revoke[refresh_cookie] = REFRESH_EXPIRY_TOKEN
+
+    # Push all identified tokens into the blocklist store
+    for token, expiry in tokens_to_revoke.items():
+        await add_token_to_blocklist(token, expiry)
+
+    # 4. Construct response and clear out client-side cookies
+    response = Response(
+        content='{"message": "User account deleted and sessions revoked successfully."}',
+        media_type="application/json",
+        status_code=status.HTTP_200_OK,
+    )
+
+    response.delete_cookie(key="session_token")
+    response.delete_cookie(key="refresh_token")
+
+    logger.info(
+        "User deletion completed. user_id=%s, revoked_tokens=%s",
+        user_id,
+        len(tokens_to_revoke),
+    )
+
+    return response

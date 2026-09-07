@@ -351,14 +351,13 @@ async def test_refresh_token_success_via_cookie(
     # Inject the token inside the client's cookie jar
     client.cookies.set("refresh_token", "valid_stored_refresh_token")
 
-    response = await client.get("/api/v1/auth/refresh")
+    response = await client.post("/api/v1/auth/refresh")
 
     # Assertions
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["message"] == "Session and refresh tokens refreshed"
     assert data["session_token"] == "newly_minted_session_jwt"
-    assert data["refresh_token"] == "newly_minted_refresh_jwt"
 
     # Verify cookie modifications are attached inside headers
     set_cookie_headers = response.headers.get_list("set-cookie")
@@ -392,7 +391,7 @@ async def test_refresh_token_success_via_bearer_header(
     mock_create_refresh.return_value = "mobile_new_refresh_jwt"
 
     headers = {"Authorization": "Bearer valid_bearer_refresh_token"}
-    response = await client.get("/api/v1/auth/refresh", headers=headers)
+    response = await client.post("/api/v1/auth/refresh", headers=headers)
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["session_token"] == "mobile_new_session_jwt"
@@ -405,7 +404,7 @@ async def test_refresh_token_success_via_bearer_header(
 
 @pytest.mark.asyncio
 async def test_refresh_token_fail_missing_token(client):
-    response = await client.get("/api/v1/auth/refresh")
+    response = await client.post("/api/v1/auth/refresh")
 
     assert response.status_code in (
         status.HTTP_401_UNAUTHORIZED,
@@ -419,7 +418,7 @@ async def test_refresh_token_fail_invalid_type_claim(mock_decode, client):
     mock_decode.return_value = {"type": "session", "sub": "user-uuid-123"}
 
     client.cookies.set("refresh_token", "wrong_type_token")
-    response = await client.get("/api/v1/auth/refresh")
+    response = await client.post("/api/v1/auth/refresh")
 
     assert response.status_code in (
         status.HTTP_401_UNAUTHORIZED,
@@ -436,7 +435,7 @@ async def test_refresh_token_fail_missing_subject_claim(mock_decode, client):
     ]
 
     client.cookies.set("refresh_token", "malformed_jwt_no_sub")
-    response = await client.get("/api/v1/auth/refresh")
+    response = await client.post("/api/v1/auth/refresh")
 
     assert response.status_code in (
         status.HTTP_401_UNAUTHORIZED,
@@ -455,7 +454,7 @@ async def test_refresh_token_fail_user_not_found(
     mock_get_user_by_id.return_value = None
 
     client.cookies.set("refresh_token", "valid_token_deleted_user")
-    response = await client.get("/api/v1/auth/refresh")
+    response = await client.post("/api/v1/auth/refresh")
 
     assert response.status_code in (
         status.HTTP_401_UNAUTHORIZED,

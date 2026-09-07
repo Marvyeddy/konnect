@@ -11,6 +11,7 @@ from backend.middleware import require_middleware
 from backend.routers.auth import auth_router
 from backend.routers.onboarding import onboarding_router
 from backend.routers.users import user_router
+from backend.routers.vendors import vendor_router
 
 version = "v1"
 
@@ -62,3 +63,4 @@ app.include_router(
 )
 app.include_router(user_router, prefix=f"/api/{version}/users", tags=["Users"])
 app.include_router(admin_router, prefix=f"/api/{version}/admin", tags=["Admin"])
+app.include_router(vendor_router, prefix=f"/api/{version}/vendors", tags=["Vendor"])
