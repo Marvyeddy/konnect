@@ -15,6 +15,7 @@ from fastapi import (
 )
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse, RedirectResponse
+from jinja2.utils import F
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.constants.main import REFRESH_EXPIRY_TOKEN, SESSION_EXPIRY_TOKEN
@@ -160,6 +161,13 @@ async def login_user(
         logger.warning(f"Login failed: Incorrect password for email: {email}")
         raise UserCredentialInvalid
 
+    if getattr(user, "is_active", None) is False:
+        logger.warning(f"Login failed: Inactive account for email: {email}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is inactive. Please contact support.",
+        )
+
     await auth_service.update_user(user.id, {"auth_provider": "local"}, session)
 
     token_dict = {
@@ -210,6 +218,15 @@ async def forget_password(
 ):
     logger.info(f"Forget password request received for email: {email}")
     user = await auth_service.get_user_by_email(email, session)
+
+    if user and getattr(user, "is_active", None) is False:
+        logger.warning(
+            f"Password reset attempt failed: Inactive account for email: {email}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is inactive. Please contact support.",
+        )
 
     if user:
         logger.info(f"User with email {email} found. Sending password reset email.")
@@ -314,6 +331,10 @@ async def refresh_session_token(
 
     if not user:
         logger.warning(f"User not found for refresh token: {user_id}")
+        raise TokenException
+
+    if user and getattr(user, "is_active", None) is False:
+        logger.warning(f"Inactive user attempted token refresh: {user_id}")
         raise TokenException
 
     new_token_dict = {
@@ -477,6 +498,15 @@ async def google_callback(
             )
 
         user = await auth_service.get_user_by_email(user_email, session)
+
+        if user and getattr(user, "is_active", None) is False:
+            logger.warning(
+                f"Inactive account attempted Google login for email: {user_email}"
+            )
+            return JSONResponse(
+                status_code=status.HTTP_403_FORBIDDEN,
+                content={"detail": "Account is inactive. Please contact support."},
+            )
 
         if user:
             logger.info(f"Existing user with email {user_email} logging in via Google.")

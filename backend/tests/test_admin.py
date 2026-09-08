@@ -54,8 +54,8 @@ async def test_make_admin_success(mock_get_user, mock_update_user, client):
     mock_get_user.return_value = mock_user
     mock_update_user.return_value = mock_user
 
-    response = await client.patch(
-        f"/api/v1/admin/{TARGET_USER_UUID}/create", headers=VALID_AUTH_HEADERS
+    response = await client.get(
+        f"/api/v1/admin/create/{TARGET_USER_UUID}", headers=VALID_AUTH_HEADERS
     )
 
     assert response.status_code == status.HTTP_200_OK
@@ -77,8 +77,8 @@ async def test_remove_admin_success(mock_get_user, mock_update_user, client):
     mock_get_user.return_value = mock_user
     mock_update_user.return_value = mock_user
 
-    response = await client.patch(
-        f"/api/v1/admin/{TARGET_USER_UUID}/remove", headers=VALID_AUTH_HEADERS
+    response = await client.get(
+        f"/api/v1/admin/remove/{TARGET_USER_UUID}", headers=VALID_AUTH_HEADERS
     )
 
     assert response.status_code == status.HTTP_200_OK
@@ -96,11 +96,11 @@ async def test_remove_admin_success(mock_get_user, mock_update_user, client):
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("mock_unauthorized_auth")
 async def test_admin_endpoints_raise_403_forbidden_when_unauthorized(client):
-    create_response = await client.patch(
-        f"/api/v1/admin/{TARGET_USER_UUID}/create", headers=VALID_AUTH_HEADERS
+    create_response = await client.get(
+        f"/api/v1/admin/create/{TARGET_USER_UUID}", headers=VALID_AUTH_HEADERS
     )
-    remove_response = await client.patch(
-        f"/api/v1/admin/{TARGET_USER_UUID}/remove", headers=VALID_AUTH_HEADERS
+    remove_response = await client.get(
+        f"/api/v1/admin/remove/{TARGET_USER_UUID}", headers=VALID_AUTH_HEADERS
     )
 
     assert create_response.status_code == status.HTTP_403_FORBIDDEN
@@ -117,8 +117,8 @@ async def test_admin_endpoints_raise_403_forbidden_when_unauthorized(client):
 async def test_admin_endpoints_fail_invalid_uuid_format(client):
     invalid_id = "non-existent-malformed-string-id"
 
-    response = await client.patch(
-        f"/api/v1/admin/{invalid_id}/create", headers=VALID_AUTH_HEADERS
+    response = await client.get(
+        f"/api/v1/admin/create/{invalid_id}", headers=VALID_AUTH_HEADERS
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -131,8 +131,8 @@ async def test_admin_endpoints_fail_invalid_uuid_format(client):
 async def test_make_admin_fail_user_not_found(mock_get_user, client):
     mock_get_user.return_value = None
 
-    response = await client.patch(
-        f"/api/v1/admin/{TARGET_USER_UUID}/create", headers=VALID_AUTH_HEADERS
+    response = await client.get(
+        f"/api/v1/admin/create/{TARGET_USER_UUID}", headers=VALID_AUTH_HEADERS
     )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -155,8 +155,8 @@ async def test_make_admin_fail_database_rollback(
         "sqlalchemy.ext.asyncio.AsyncSession.commit",
         side_effect=Exception("Database error"),
     ):
-        response = await client.patch(
-            f"/api/v1/admin/{TARGET_USER_UUID}/create", headers=VALID_AUTH_HEADERS
+        response = await client.get(
+            f"/api/v1/admin/create/{TARGET_USER_UUID}", headers=VALID_AUTH_HEADERS
         )
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR

@@ -15,23 +15,22 @@ auth_service = AuthService()
 async def get_current_user(
     authorization: Annotated[str | None, Header(...)] = None,
     session_token: Annotated[str | None, Cookie(alias="session_token")] = None,
-    token_query: Annotated[
-        str | None, Query(alias="token")
-    ] = None,  # because of SSE notification
+    token_query: Annotated[str | None, Query(alias="token")] = None,
     session: Annotated[str | None, Depends(get_session)] = None,
 ):
     token = session_token
 
+    # Try header if no cookie session
     if not token and authorization:
-        schemes, _, bearer_token = authorization.partition(" ")
-
-        if schemes.lower() == "bearer" and bearer_token:
+        scheme, _, bearer_token = authorization.partition(" ")
+        if scheme.lower() == "bearer" and bearer_token:
             token = bearer_token
 
+    # Try query param if still no token
     if not token and token_query:
         token = token_query
 
-    if token is None:
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session token missing.",
@@ -44,8 +43,7 @@ async def get_current_user(
         )
 
     token_data = decode_token(token)
-
-    if token_data is None:
+    if not token_data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired or is invalid.",
@@ -57,9 +55,28 @@ async def get_current_user(
             detail="Invalid token type.",
         )
 
-    user_id = uuid.UUID(token_data["sub"])
+    user_id = token_data.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token payload missing user id.",
+        )
 
-    user = await auth_service.get_user_by_id(user_id, session)
+    try:
+        user_uuid = uuid.UUID(user_id)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Malformed user id in token.",
+        )
+
+    user = await auth_service.get_user_by_id(user_uuid, session)
+
+    if not user or getattr(user, "is_active", None) is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is inactive.",
+        )
 
     return user
 
