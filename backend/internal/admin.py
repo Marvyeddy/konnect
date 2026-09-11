@@ -1,15 +1,17 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.authorization import PermissionChecker, RoleChecker
 from backend.external.database import get_session
 from backend.services.auth import AuthService
+from backend.core.logging import get_app_logger
 
 admin_router = APIRouter()
 auth_service = AuthService()
+logger = get_app_logger(__name__)
 
 super_admin = PermissionChecker(["super_admin"])
 admin = RoleChecker(["admin"])
@@ -19,9 +21,11 @@ admin = RoleChecker(["admin"])
 async def make_admin(
     user_id: str, session: Annotated[AsyncSession, Depends(get_session)]
 ):
+    logger.info(f"Attempting to promote user {user_id} to admin.")
     try:
         user_uuid = uuid.UUID(user_id)
     except ValueError:
+        logger.warning(f"Invalid UUID format for make_admin: {user_id}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid user ID format. Must be a valid UUID.",
@@ -29,6 +33,7 @@ async def make_admin(
 
     user = await auth_service.get_user_by_id(user_uuid, session)
     if not user:
+        logger.warning(f"User {user_id} not found for admin promotion.")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User {user_id} not found.",
@@ -37,6 +42,7 @@ async def make_admin(
     update_fields = {"role": "admin"}
     updated_user = await auth_service.update_user(user_uuid, update_fields, session)
     if not updated_user:
+        logger.error(f"Failed to update user {user_id} role to admin.")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update user role.",
@@ -48,8 +54,10 @@ async def make_admin(
 
     try:
         await session.commit()
-    except Exception:  # noqa: BLE001
+        logger.info(f"User {user_id} promoted to admin successfully.")
+    except Exception as e:  # noqa: BLE001
         await session.rollback()
+        logger.error(f"Database error during promotion of {user_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database error during promotion.",
@@ -62,9 +70,11 @@ async def make_admin(
 async def remove_admin(
     user_id: str, session: Annotated[AsyncSession, Depends(get_session)]
 ):
+    logger.info(f"Attempting to remove admin privileges from user {user_id}.")
     try:
         user_uuid = uuid.UUID(user_id)
     except ValueError:
+        logger.warning(f"Invalid UUID format for remove_admin: {user_id}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid user ID format. Must be a valid UUID.",
@@ -72,6 +82,7 @@ async def remove_admin(
 
     user = await auth_service.get_user_by_id(user_uuid, session)
     if not user:
+        logger.warning(f"User {user_id} not found for admin removal.")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User {user_id} not found.",
@@ -80,6 +91,7 @@ async def remove_admin(
     update_fields = {"role": "user"}
     updated_user = await auth_service.update_user(user_uuid, update_fields, session)
     if not updated_user:
+        logger.error(f"Failed to update user {user_id} role to user.")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update user role.",
@@ -91,8 +103,12 @@ async def remove_admin(
 
     try:
         await session.commit()
-    except Exception:  # noqa: BLE001
+        logger.info(f"User {user_id} admin privileges removed successfully.")
+    except Exception as e:  # noqa: BLE001
         await session.rollback()
+        logger.error(
+            f"Database error while removing admin privileges from {user_id}: {e}"
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database error while removing admin privileges.",
@@ -106,9 +122,11 @@ async def remove_admin(
 async def verify_vendor(
     user_id: str, session: Annotated[AsyncSession, Depends(get_session)]
 ):
+    logger.info(f"Attempting to verify vendor user {user_id}.")
     try:
         user_uuid = uuid.UUID(user_id)
     except ValueError:
+        logger.warning(f"Invalid UUID format for verify_vendor: {user_id}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid user ID format. Must be a valid UUID.",
@@ -116,12 +134,16 @@ async def verify_vendor(
 
     user = await auth_service.get_user_by_id(user_uuid, session)
     if not user:
+        logger.warning(f"User {user_id} not found for vendor verification.")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User {user_id} not found.",
         )
 
     if user.role != "pending":
+        logger.warning(
+            f"User {user_id} is not pending verification. Current role: {user.role}"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User is not pending verification.",
@@ -129,13 +151,15 @@ async def verify_vendor(
 
     user.role = "vendor"
     profile = getattr(user, "vendor_profile", None)
-    if profile is not None and hasattr(profile, "is_verified"):
-        profile.is_verified = True
+    if profile is not None and hasattr(profile, "verified"):
+        profile.verified = True
 
     try:
         await session.commit()
-    except Exception:  # noqa: BLE001
+        logger.info(f"User {user_id} has been verified as a vendor.")
+    except Exception as e:  # noqa: BLE001
         await session.rollback()
+        logger.error(f"Failed to verify vendor {user_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to verify vendor.",
@@ -144,13 +168,16 @@ async def verify_vendor(
     return {"message": f"User {user_id} has been verified as a vendor."}
 
 
+# make user or vendor active or inactive
 @admin_router.get("/inactive/{user_id}", dependencies=[Depends(admin)])
 async def user_inactive(
     user_id: str, session: Annotated[AsyncSession, Depends(get_session)]
 ):
+    logger.info(f"Attempting to inactivate user {user_id}.")
     try:
         user_uuid = uuid.UUID(user_id)
     except ValueError:
+        logger.warning(f"Invalid UUID format for user_inactive: {user_id}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid user ID format. Must be a valid UUID.",
@@ -159,6 +186,7 @@ async def user_inactive(
     user = await auth_service.get_user_by_id(user_uuid, session)
 
     if not user:
+        logger.warning(f"User {user_id} not found for inactivation.")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User {user_id} not found.",
@@ -168,8 +196,10 @@ async def user_inactive(
 
     try:
         await session.commit()
-    except Exception:  # noqa: BLE001
+        logger.info(f"User {user_id} has been set to inactive.")
+    except Exception as e:  # noqa: BLE001
         await session.rollback()
+        logger.error(f"Failed to set user {user_id} as inactive: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to set user as inactive.",
@@ -182,9 +212,11 @@ async def user_inactive(
 async def user_active(
     user_id: str, session: Annotated[AsyncSession, Depends(get_session)]
 ):
+    logger.info(f"Attempting to activate user {user_id}.")
     try:
         user_uuid = uuid.UUID(user_id)
     except ValueError:
+        logger.warning(f"Invalid UUID format for user_active: {user_id}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid user ID format. Must be a valid UUID.",
@@ -193,6 +225,7 @@ async def user_active(
     user = await auth_service.get_user_by_id(user_uuid, session)
 
     if not user:
+        logger.warning(f"User {user_id} not found for activation.")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User {user_id} not found.",
@@ -202,11 +235,33 @@ async def user_active(
 
     try:
         await session.commit()
-    except Exception:  # noqa: BLE001
+        logger.info(f"User {user_id} has been set to active.")
+    except Exception as e:  # noqa: BLE001
         await session.rollback()
+        logger.error(f"Failed to set user {user_id} as active: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to set user as active.",
         )
 
     return {"message": f"User {user_id} has been set to active."}
+
+
+# Get all users by role using query parameter ?role=vendor
+@admin_router.get("/client", dependencies=[Depends(admin)])
+async def get_all_users_by_role(
+    role: Annotated[
+        str, Query(..., description='Role to filter users by, e.g. "vendor"')
+    ],
+    session: Annotated[AsyncSession, Depends(get_session)],
+):
+    logger.info(f"Fetching users with role: {role}")
+    users = await auth_service.get_user_by_role(role, session)
+    if not users:
+        logger.warning(f"No users found with role: {role}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No users found with role: {role}",
+        )
+    logger.info(f"Found {len(users)} users with role: {role}")
+    return users

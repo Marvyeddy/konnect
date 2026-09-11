@@ -2,6 +2,7 @@ import uuid
 
 import pytest
 
+from backend.constants.main import Roles
 from backend.models.users import Users
 from backend.schemas.auth import UserIn
 from backend.services.auth import AuthService
@@ -45,6 +46,25 @@ async def test_get_user_by_email(session):
 
     assert user is not None
     assert user.email == "testuser@gmail.com"
+
+
+@pytest.mark.asyncio
+async def test_get_user_by_role(session):
+    seeded_data = Users(
+        email="testuser@gmail.com",
+        password="hashed-password",
+        username="testuser",
+        role="vendor",
+    )
+
+    session.add(seeded_data)
+    await session.commit()
+    await session.refresh(seeded_data)
+
+    user = await auth_service.get_user_by_role(seeded_data.role, session)
+
+    assert len(user) > 0
+    assert user[0].role == "vendor"
 
 
 @pytest.mark.asyncio
