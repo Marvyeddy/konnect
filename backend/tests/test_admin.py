@@ -176,7 +176,10 @@ async def test_make_admin_fail_database_rollback(
 @pytest.mark.usefixtures("mock_admin_auth")
 @patch("backend.internal.admin.auth_service.update_user", new_callable=AsyncMock)
 @patch("backend.internal.admin.auth_service.get_user_by_id", new_callable=AsyncMock)
-async def test_verify_vendor_success(mock_get_user, mock_update_user, client):
+@patch("backend.internal.admin.send_email", new_callable=AsyncMock)
+async def test_verify_vendor_success(
+    mock_send_email, mock_get_user, mock_update_user, client
+):
     mock_profile = MagicMock()
     mock_profile.verified = False
 
@@ -197,6 +200,7 @@ async def test_verify_vendor_success(mock_get_user, mock_update_user, client):
 
     assert mock_user.role == "vendor"
     assert mock_profile.verified is True
+    mock_send_email.assert_called_once()
 
 
 @pytest.mark.asyncio

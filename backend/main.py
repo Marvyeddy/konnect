@@ -11,6 +11,7 @@ from backend.middleware import require_middleware
 from backend.routers.auth import auth_router
 from backend.routers.notifications import notification_router
 from backend.routers.onboarding import onboarding_router
+from backend.routers.products import product_router
 from backend.routers.users import user_router
 from backend.routers.vendors import vendor_router
 
@@ -68,3 +69,4 @@ app.include_router(vendor_router, prefix=f"/api/{version}/vendors", tags=["Vendo
 app.include_router(
     notification_router, prefix=f"/api/{version}/notifications", tags=["Notification"]
 )
+app.include_router(product_router, prefix=f"/api/{version}/products", tags=["Product"])

@@ -10,6 +10,7 @@ from backend.constants.main import Roles
 from backend.models.notification import Notification
 from backend.models.user_profile import UserProfile
 from backend.models.vendor_profile import VendorProfile
+from backend.models.products import Product
 
 
 class Users(SQLModel, table=True):
@@ -68,6 +69,7 @@ class Users(SQLModel, table=True):
     user_profile: Optional["UserProfile"] = Relationship(back_populates="user")
     vendor_profile: Optional["VendorProfile"] = Relationship(back_populates="user")
     notifications: list["Notification"] = Relationship(back_populates="user")
+    products: list["Product"] = Relationship(back_populates="user")
 
     def __repr__(self):
         return f"<User email: {self.email} & username: {self.username}>"

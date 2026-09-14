@@ -1,11 +1,12 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.authorization import PermissionChecker, RoleChecker
 from backend.external.database import get_session
+from backend.external.email import send_email
 from backend.services.auth import AuthService
 from backend.core.logging import get_app_logger
 
@@ -120,7 +121,9 @@ async def remove_admin(
 # verify a vendor
 @admin_router.get("/verify/{user_id}", dependencies=[Depends(admin)])
 async def verify_vendor(
-    user_id: str, session: Annotated[AsyncSession, Depends(get_session)]
+    bg_tasks: BackgroundTasks,
+    user_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
 ):
     logger.info(f"Attempting to verify vendor user {user_id}.")
     try:
@@ -164,6 +167,19 @@ async def verify_vendor(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to verify vendor.",
         )
+
+    context = {
+        "username": user.username,
+        "login_url": "http://localhost:3000/login",
+    }
+
+    bg_tasks.add_task(
+        send_email,
+        subject="Your Vendor Account is Verified!",
+        recipients=[user.email],
+        template_name="vendor_verified.html",
+        context=context,
+    )
 
     return {"message": f"User {user_id} has been verified as a vendor."}
 
