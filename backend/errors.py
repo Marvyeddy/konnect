@@ -27,6 +27,10 @@ class TokenException(KonnectException):
     """Token is missing"""
 
 
+class ProductsException(KonnectException):
+    """Products unavaiable"""
+
+
 def create_exception_handler(
     status_code: int, detail: Any
 ) -> Callable[[Request, Exception], JSONResponse]:
@@ -95,5 +99,16 @@ def require_error(app: FastAPI):
         create_exception_handler(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"message": "Token is missing", "error": "token_missing"},
+        ),
+    )
+
+    app.add_exception_handler(
+        ProductsException,
+        create_exception_handler(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "message": "Products are not available",
+                "error": "product_unavailable",
+            },
         ),
     )
