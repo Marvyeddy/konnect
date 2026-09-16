@@ -1,4 +1,5 @@
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
+import uuid
 
 import pytest
 from fastapi import status
@@ -38,12 +39,15 @@ async def test_create_new_user_success(mock_send_email, client, session: AsyncSe
 
 
 @pytest.mark.asyncio
-@patch("backend.routers.auth.send_email")
+@patch("backend.routers.auth.send_email", new_callable=AsyncMock)
 async def test_current_user_already_exists(
     mock_send_email, client, session: AsyncSession
 ):
     seeded_data = Users(
-        email="testuser@gmail.com", username="testuser", password="hashed-password"
+        id=uuid.uuid4(),
+        email="testuser@gmail.com",
+        username="testuser",
+        password="hashed-password",
     )
 
     session.add(seeded_data)

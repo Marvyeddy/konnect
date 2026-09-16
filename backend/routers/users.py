@@ -32,9 +32,9 @@ async def get_user_profile(
 @user_router.patch("/me/update")
 async def update_profile(
     user_data_str: Annotated[str, Form(alias="user_data")],
+    current_user: Annotated[Users, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     image: Annotated[UploadFile | None, File()] = None,
-    current_user: Annotated[Users | None, Depends(get_current_user)] = None,
-    session: Annotated[AsyncSession | None, Depends(get_session)] = None,
 ):
     try:
         user_data = UserUpdate.model_validate_json(user_data_str)
@@ -43,32 +43,25 @@ async def update_profile(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=e.errors()
         )
 
-    updated = False
-    image_url = current_user.user_profile.image
+    update_dict = user_data.model_dump(exclude_unset=True)
 
+    image_url = None
     if image:
         allowed_extensions = {"jpg", "jpeg", "png", "gif", "webp"}
+        allowed_content_types = {"image/jpeg", "image/png", "image/gif", "image/webp"}
         file_extension = (
             image.filename.split(".")[-1].lower() if "." in image.filename else ""
         )
-        if file_extension not in allowed_extensions:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid file extension"
-            )
 
-        allowed_content_types = {"image/jpeg", "image/png", "image/gif", "image/webp"}
-        if image.content_type not in allowed_content_types:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid file content type",
-            )
+        if (
+            file_extension not in allowed_extensions
+            or image.content_type not in allowed_content_types
+        ):
+            raise HTTPException(status_code=400, detail="Invalid file type")
 
         file_bytes = await image.read()
         if len(file_bytes) > 10 * 1024 * 1024:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="File size is too large (Max 10MB)",
-            )
+            raise HTTPException(status_code=400, detail="File size exceeds 10MB")
 
         try:
             unique_id = uuid.uuid4().hex[:8]
@@ -77,7 +70,6 @@ async def update_profile(
                 if "." in image.filename
                 else image.filename
             )
-
             upload_result = await run_in_threadpool(
                 cloudinary.uploader.upload,
                 file_bytes,
@@ -85,35 +77,28 @@ async def update_profile(
                 overwrite=True,
             )
             image_url = upload_result.get("secure_url")
-            current_user.user_profile.image = image_url
-            updated = True
         except (BadRequest, Error) as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Cloudinary upload failed: {e!s}",
-            )
+            raise HTTPException(status_code=500, detail=f"Upload failed: {e!s}")
 
-    if user_data.username is not None:
-        current_user.username = user_data.username
-        updated = True
-    if user_data.password is not None:
-        current_user.password = hash_pwd(user_data.password)
-        updated = True
-    if user_data.full_name is not None:
-        current_user.user_profile.full_name = user_data.full_name
-        updated = True
-
-    if not updated:
+    if not update_dict and not image_url:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No update fields provided.",
         )
 
-    if session is not None:
-        session.add(current_user)
-        await session.commit()
-        await session.refresh(current_user)
+    for key, value in update_dict.items():
+        if key == "password":
+            current_user.password = hash_pwd(value)
+        elif key == "full_name":
+            current_user.user_profile.full_name = value
+        else:
+            setattr(current_user, key, value)
 
-    return {
-        "message": "Profile updated successfully",
-    }
+    if image_url:
+        current_user.user_profile.image = image_url
+
+    session.add(current_user)
+    await session.commit()
+    await session.refresh(current_user)
+
+    return {"message": "Profile updated successfully"}

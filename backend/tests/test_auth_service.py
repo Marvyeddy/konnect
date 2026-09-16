@@ -24,10 +24,10 @@ async def test_get_user_by_id(session):
     await session.refresh(seeded_data)
 
     # Pass UUID directly, not str(id)
-    user = await auth_service.get_user_by_id(id, session)
+    user = await auth_service.get_user_by_id(seeded_data.id, session)
 
     assert user is not None
-    assert user.id == id
+    assert user.id == seeded_data.id
     assert user.email == "testuser@gmail.com"
     assert user.username == "testuser"
 

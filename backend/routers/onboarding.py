@@ -18,9 +18,12 @@ from backend.models.vendor_profile import VendorProfile
 from backend.schemas.onboarding import VendorOnboarding
 from backend.services.auth import AuthService
 from backend.services.sse_manager import notification_manager
+from backend.core.logging import get_app_logger
 
 onboarding_router = APIRouter()
 auth_service = AuthService()
+
+logger = get_app_logger(__name__)
 
 
 @onboarding_router.post("/user")
@@ -103,6 +106,11 @@ async def onboard_vendor(
     current_user: Annotated[Users | None, Depends(get_current_user)] = None,
     session: Annotated[AsyncSession, Depends(get_session)] = None,
 ):
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
+
     try:
         vendor_data = VendorOnboarding.model_validate_json(vendor_data_str)
     except ValidationError as e:
@@ -110,35 +118,73 @@ async def onboard_vendor(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=e.errors()
         )
 
-    image_url = None
-    license_url = None
+    # -------------------------------------------------------------
+    # PHASE 1: BULK VALIDATION (Fail fast before uploading anything)
+    # -------------------------------------------------------------
+    allowed_img_extensions = {"jpg", "jpeg", "png", "gif", "webp"}
+    allowed_img_types = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
     if image:
-        allowed_img_extensions = {"jpg", "jpeg", "png", "gif", "webp"}
         img_ext = image.filename.split(".")[-1].lower() if "." in image.filename else ""
-
         if img_ext not in allowed_img_extensions:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid image file extension",
             )
 
-        file_bytes = await image.read()
-        if len(file_bytes) > 10 * 1024 * 1024:
+        image_bytes = await image.read()
+        if len(image_bytes) > 10 * 1024 * 1024:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Image size is too large (Max 10MB)",
             )
 
-        allowed_img_types = {"image/jpeg", "image/png", "image/gif", "image/webp"}
         if image.content_type not in allowed_img_types:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid image content type",
             )
 
+        await image.seek(0)
+
+    # Validate Business License File
+    allowed_lic_extensions = {"jpg", "jpeg", "png", "pdf"}
+    allowed_lic_types = {"image/jpeg", "image/png", "application/pdf"}
+
+    lic_ext = (
+        business_license.filename.split(".")[-1].lower()
+        if "." in business_license.filename
+        else ""
+    )
+    if lic_ext not in allowed_lic_extensions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid business license extension. Only JPG, PNG, and PDF are allowed.",
+        )
+
+    license_bytes = await business_license.read()
+    if len(license_bytes) > 15 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Business license size is too large (Max 15MB)",
+        )
+
+    if business_license.content_type not in allowed_lic_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid business license file content type",
+        )
+    await business_license.seek(0)
+
+    # -------------------------------------------------------------
+    # PHASE 2: CLOUDINARY UPLOADS
+    # -------------------------------------------------------------
+    image_url = None
+    if image:
+        file_bytes = await image.read()
         try:
             unique_id = uuid.uuid4().hex[:8]
+            # FIX: Added [0] index to resolve the raw array split text bug
             base_img_name = (
                 image.filename.rsplit(".", 1)[0]
                 if "." in image.filename
@@ -158,33 +204,8 @@ async def onboard_vendor(
                 detail=f"Profile image upload failed: {e!s}",
             )
 
-    allowed_lic_extensions = {"jpg", "jpeg", "png", "pdf"}
-    lic_ext = (
-        business_license.filename.split(".")[-1].lower()
-        if "." in business_license.filename
-        else ""
-    )
-
-    if lic_ext not in allowed_lic_extensions:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid business license extension. Only JPG, PNG, and PDF are allowed.",
-        )
-
-    license_bytes = await business_license.read()
-    if len(license_bytes) > 15 * 1024 * 1024:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Business license size is too large (Max 15MB)",
-        )
-
-    allowed_lic_types = {"image/jpeg", "image/png", "application/pdf"}
-    if business_license.content_type not in allowed_lic_types:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid business license file content type",
-        )
-
+    # Upload Business License
+    lic_bytes = await business_license.read()
     try:
         unique_id = uuid.uuid4().hex[:8]
         base_lic_name = (
@@ -195,7 +216,7 @@ async def onboard_vendor(
 
         license_upload_result = await run_in_threadpool(
             cloudinary.uploader.upload,
-            license_bytes,
+            lic_bytes,
             public_id=f"vendors/licenses/{base_lic_name}_{unique_id}",
             overwrite=True,
             resource_type="auto",
@@ -207,6 +228,9 @@ async def onboard_vendor(
             detail=f"Business license upload failed: {e!s}",
         )
 
+    # -------------------------------------------------------------
+    # PHASE 3: DATABASE PERSISTENCE & NOTIFICATIONS
+    # -------------------------------------------------------------
     new_vendor = VendorProfile(
         **vendor_data.model_dump(),
         user_id=current_user.id,
@@ -215,14 +239,9 @@ async def onboard_vendor(
     )
 
     await auth_service.update_user(current_user.id, {"role": "pending"}, session)
-
     session.add(new_vendor)
     await session.commit()
     await session.refresh(new_vendor)
-
-    # =============================
-    # NOTIFICATION
-    # =============================
 
     try:
         admin_query = await session.execute(
@@ -230,35 +249,35 @@ async def onboard_vendor(
         )
         admin_ids = [str(row[0]) for row in admin_query.all()]
 
-        notifications_to_add = [
-            Notification(
-                user_id=admin_id,
-                title="New vendor verification required",
-                message=f"Vendor '{vendor_data.business_name}' has onboarded and requires document review.",
-                notification_type="VENDOR_ONBOARDING",
-                action_url=f"/admin/vendors/{new_vendor.id}",
-                is_read=False,
-            )
-            for admin_id in admin_ids
-        ]
-        session.add_all(notifications_to_add)
-        await session.commit()
+        if admin_ids:
+            notifications_to_add = [
+                Notification(
+                    user_id=admin_id,
+                    title="New vendor verification required",
+                    message=f"Vendor '{vendor_data.business_name}' has onboarded and requires document review.",
+                    notification_type="VENDOR_ONBOARDING",
+                    action_url=f"/admin/vendors/{new_vendor.id}",
+                    is_read=False,
+                )
+                for admin_id in admin_ids
+            ]
+            session.add_all(notifications_to_add)
+            await session.commit()
 
-        live_payload = {
-            "title": "New Vendor Verification Required",
-            "message": f"Vendor '{vendor_data.business_name}' has onboarded and requires document review.",
-            "notification_type": "VENDOR_ONBOARDING",
-            "action_url": f"/admin/vendors/{new_vendor.id}",
-            "vendor_id": str(new_vendor.id),
-        }
-
-        await notification_manager.broadcast_to_admins(admin_ids, live_payload)
-    except Exception as log_err:  # noqa: BLE001
-        print(f"Notification broadcasting failed: {log_err}")
+            live_payload = {
+                "title": "New Vendor Verification Required",
+                "message": f"Vendor '{vendor_data.business_name}' has onboarded and requires document review.",
+                "notification_type": "VENDOR_ONBOARDING",
+                "action_url": f"/admin/vendors/{new_vendor.id}",
+                "vendor_id": str(new_vendor.id),
+            }
+            await notification_manager.broadcast_to_admins(admin_ids, live_payload)
+    except Exception as log_err:
+        logger.error(f"Notification broadcasting failed: {log_err}")
 
     return {
         "message": "Vendor onboarded successfully",
-        "vendor_id": new_vendor.id,
+        "vendor_id": str(new_vendor.id),
         "license_url": license_url,
         "image_url": image_url,
     }

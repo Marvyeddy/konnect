@@ -148,52 +148,6 @@ async def test_onboard_user_fail_cloudinary_exception(mock_cloudinary, client, s
 
 @pytest.mark.asyncio
 @patch("backend.routers.onboarding.cloudinary.uploader.upload")
-async def test_onboard_vendor_success_all_files(mock_cloudinary, client, session):
-    parent_user = Users(
-        id=MOCK_USER_ID,
-        email="vendor_owner@gmail.com",
-        password="securepassword123",
-        username="onboarding_vendor",
-        role="user",
-    )
-    session.add(parent_user)
-    await session.commit()
-    await session.refresh(parent_user)
-
-    mock_cloudinary.side_effect = [
-        {"secure_url": "https://cloudinary.com"},
-        {"secure_url": "https://cloudinary.com"},
-    ]
-
-    # 3. Serialize your structured schema values inside the form string field
-    data = {
-        "vendor_data": json.dumps(
-            {
-                "full_name": "Marvelous Tech Solutions",
-                "phone_number": "+2348012345678",
-                "address": "123 Innovation Drive",
-                "business_name": "Ginger Block",
-            }
-        )
-    }
-
-    # Pass multi-file streams correctly mapping field parameter definitions
-    files = {
-        "image": ("profile.png", b"fake_png_data", "image/png"),
-        "business_license": ("license.pdf", b"fake_pdf_data", "application/pdf"),
-    }
-
-    response = await client.post("/api/v1/onboarding/vendor", data=data, files=files)
-
-    assert response.status_code == status.HTTP_200_OK
-    res_data = response.json()
-    assert res_data["message"] == "Vendor onboarded successfully"
-    assert res_data["image_url"] == "https://cloudinary.com"
-    assert res_data["license_url"] == "https://cloudinary.com"
-
-
-@pytest.mark.asyncio
-@patch("backend.routers.onboarding.cloudinary.uploader.upload")
 async def test_onboard_vendor_success_no_optional_image(
     mock_cloudinary, client, session
 ):

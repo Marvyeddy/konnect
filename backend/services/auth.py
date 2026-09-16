@@ -19,10 +19,11 @@ class AuthService:
             .options(
                 joinedload(Users.user_profile),
                 joinedload(Users.vendor_profile),
+                joinedload(Users.products),
             )
         )
         result = await session.execute(statement)
-        return result.scalar_one_or_none()
+        return result.unique().scalar_one_or_none()
 
     async def get_user_by_email(
         self, email: str, session: AsyncSession
@@ -30,21 +31,29 @@ class AuthService:
         statement = (
             select(Users)
             .where(Users.email == email)
-            .options(joinedload(Users.user_profile), joinedload(Users.vendor_profile))
+            .options(
+                joinedload(Users.user_profile),
+                joinedload(Users.vendor_profile),
+                joinedload(Users.products),
+            )
         )
         result = await session.execute(statement)
-        return result.scalar_one_or_none()
+        return result.unique().scalar_one_or_none()
 
     async def get_user_by_role(self, role: str, session: AsyncSession) -> Users | None:
         statement = (
             select(Users)
             .where(Users.role == role)
-            .options(joinedload(Users.user_profile), joinedload(Users.vendor_profile))
+            .options(
+                joinedload(Users.user_profile),
+                joinedload(Users.vendor_profile),
+                joinedload(Users.products),
+            )
         )
 
         result = await session.execute(statement)
 
-        return result.scalars().all()
+        return result.scalars().unique().all()
 
     async def create_user(self, user_data: UserIn, session: AsyncSession) -> Users:
         user_dict = user_data.model_dump()

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -36,7 +37,7 @@ class UserOut(BaseModel):
     id: UUID
     email: str
     username: str
-    google_id: str | None = None
+    google_id: Optional[str] = None
     role: Roles
     auth_provider: str
     is_active: bool
@@ -47,6 +48,6 @@ class UserOut(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    username: str | None = None
-    password: str | None = None
-    full_name: str | None = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    full_name: Optional[str] = None
