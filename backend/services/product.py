@@ -96,3 +96,19 @@ class ProductService:
         await session.commit()
         await session.refresh(product)
         return product
+
+    async def delete_product(
+        self,
+        product_id: uuid.UUID | None,
+        vendor_id: uuid.UUID | None,
+        session: AsyncSession,
+    ):
+        product = await self.get_product_by_id_and_vendor(
+            product_id, vendor_id, session
+        )
+        if not product:
+            return False
+
+        await session.delete(product)
+        await session.commit()
+        return True

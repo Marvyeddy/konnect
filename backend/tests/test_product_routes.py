@@ -1,17 +1,17 @@
 import asyncio
 import json
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import uuid
 from fastapi import HTTPException, status
 import pytest
-import pytest_asyncio
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.dependencies import get_current_user
 from backend.main import app
 from backend.models.products import Product
 from backend.models.users import Users
-from backend.routers.products import vendor_role
+from backend.routers.products import admin_vendor_role
 
 PRODUCT_ID = uuid.uuid4()
 TEST_VENDOR_ID = uuid.uuid4()
@@ -35,7 +35,7 @@ def mock_vendor_auth(session):
     loop = asyncio.get_event_loop()
     loop.run_until_complete(_async_setup())
 
-    app.dependency_overrides[vendor_role] = lambda: True
+    app.dependency_overrides[admin_vendor_role] = lambda: True
     app.dependency_overrides[get_current_user] = lambda: vendor_user
 
     yield
@@ -51,7 +51,7 @@ def mock_unauthorized_auth():
             detail="You do not have permission to access this resource.",
         )
 
-    app.dependency_overrides[vendor_role] = raise_forbidden
+    app.dependency_overrides[admin_vendor_role] = raise_forbidden
     yield
     app.dependency_overrides.clear()
 
@@ -239,10 +239,8 @@ async def test_product_success_all_files(mock_cloudinary, client):
         ("images", ("product2.png", b"imagedata2", "image/png")),
     ]
 
-    # Act
     response = await client.post("/api/v1/products", data=data, files=files)
 
-    # Assert
     assert response.status_code == 201
     res_json = response.json()
     assert res_json["name"] == "Shiny Widget"
@@ -301,19 +299,16 @@ async def test_edit_product_with_new_images(mock_cloudinary, client, session):
     await session.commit()
     await session.refresh(existing_product)
 
-    # Cloudinary setup responses
     mock_cloudinary.side_effect = [{"secure_url": "https://mocked.cloudinary"}]
 
     update_payload = {}
     data = {"product_data": json.dumps(update_payload)}
     files = [("images", ("patched_view.jpg", b"new-binary-bytes", "image/jpeg"))]
 
-    # 2. Act
     response = await client.patch(
         f"/api/v1/products/{existing_product.id}", data=data, files=files
     )
 
-    # 3. Assert
     assert response.status_code == 200
     res_json = response.json()
     assert res_json["images"] == ["https://mocked.cloudinary"]
@@ -326,10 +321,8 @@ async def test_edit_product_not_found_or_unauthorized(client):
     update_payload = {"name": "Hacked Name Change"}
     data = {"product_data": json.dumps(update_payload)}
 
-    # 2. Act
     response = await client.patch(f"/api/v1/products/{random_product_id}", data=data)
 
-    # 3. Assert
     assert response.status_code == 404
     assert response.json()["detail"] == "Product not found or not authorized"
 
@@ -354,9 +347,101 @@ async def test_edit_product_no_fields_provided(client, session):
 
     data = {"product_data": json.dumps({})}
 
-    # 2. Act
     response = await client.patch(f"/api/v1/products/{existing_product.id}", data=data)
 
-    # 3. Assert
     assert response.status_code == 400
     assert "No fields provided for updates" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("mock_vendor_auth")
+async def test_delete_product_by_owner_vendor_success(client, session):
+    product = Product(
+        id=PRODUCT_ID,
+        vendor_id=TEST_VENDOR_ID,
+        name="Vendor Item",
+        description="To be deleted by owner",
+        price=15.00,
+        discount=0,
+        in_stock=True,
+        images=[],
+        category="Tech",
+    )
+    session.add(product)
+    await session.commit()
+
+    response = await client.delete(f"/api/v1/products/{product.id}")
+
+    assert response.status_code == 200
+    assert response.json() == {"detail": "Product deleted successfully."}
+
+
+@pytest.fixture
+def mock_admin_auth():
+    admin = MagicMock()
+    admin.id = uuid.uuid4()
+    admin.role = "admin"
+
+    app.dependency_overrides[admin_vendor_role] = lambda: True
+    app.dependency_overrides[get_current_user] = lambda: admin
+
+    yield admin
+
+    app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+@patch(
+    "backend.routers.products.product_service.delete_product", new_callable=AsyncMock
+)
+async def test_delete_product_by_admin_success(
+    mock_delete_product, client, session, mock_admin_auth
+):
+    mock_delete_product.return_value = True
+
+    fake_product_id = uuid.uuid4()
+
+    response = await client.delete(f"/api/v1/products/{fake_product_id}")
+
+    assert response.status_code == 200
+    assert response.json() == {"detail": "Product deleted successfully."}
+
+    mock_delete_product.assert_called_once_with(
+        product_id=fake_product_id,
+        vendor_id=None,
+        session=session,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("mock_vendor_auth")
+async def test_delete_product_unauthorized_or_not_found(client, session):
+    stranger_vendor = Users(
+        id=uuid.uuid4(),
+        email="unauthorized_vendor@gmail.com",
+        password="securepassword123",
+        username="stranger_vendor_username",
+        role="vendor",
+    )
+    session.add(stranger_vendor)
+    await session.commit()
+
+    target_product_id = uuid.uuid4()
+    product = Product(
+        id=target_product_id,
+        vendor_id=stranger_vendor.id,
+        name="Private Item",
+        description="Belongs to someone else",
+        price=45.00,
+        discount=0,
+        in_stock=True,
+        images=[],
+        category="Tech",
+    )
+    session.add(product)
+    await session.commit()
+
+    response = await client.delete(f"/api/v1/products/{target_product_id}")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Product not found or unauthorized."

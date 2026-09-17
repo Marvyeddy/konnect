@@ -20,7 +20,7 @@ product_router = APIRouter()
 product_service = ProductService()
 logger = get_app_logger(__name__)
 
-vendor_role = RoleChecker(["vendor"])
+admin_vendor_role = RoleChecker(["vendor", "admin"])
 
 
 @product_router.get("")
@@ -86,7 +86,11 @@ async def get_product(
 
 
 @product_router.post(
-    "", status_code=status.HTTP_201_CREATED, dependencies=[Depends(vendor_role)]
+    "",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(admin_vendor_role)
+    ],  # <-- rolechecker dependency for admin or vendor
 )
 async def create_product(
     product_data_str: Annotated[str, Form(alias="product_data")],
@@ -94,6 +98,7 @@ async def create_product(
     session: Annotated[AsyncSession, Depends(get_session)],
     images: Annotated[list[UploadFile] | None, File()] = None,
 ):
+    # No need for manual role check since dependency does it.
     try:
         product_data = ProductCreate.model_validate_json(product_data_str)
     except ValidationError as e:
@@ -101,7 +106,7 @@ async def create_product(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=e.errors()
         )
 
-    # 1. VALIDATION PHASE: Validate all files upfront before uploading anything
+    # Upfront image validation
     if images:
         allowed_img_extensions = {"jpg", "jpeg", "png", "gif", "webp"}
         allowed_img_types = {"image/jpeg", "image/png", "image/gif", "image/webp"}
@@ -158,9 +163,11 @@ async def create_product(
                     detail=f"Image upload failed for '{image.filename}': {e!s}",
                 )
 
-    # Persist data
+    # By default, associate product with the current user (vendor or admin)
+    # If admin wants to create for another vendor, you can extend ProductCreate schema and logic.
+    vendor_id = current_user.id
     created_product = await product_service.create_product(
-        vendor_id=current_user.id,
+        vendor_id=vendor_id,
         product_data=product_data,
         images=image_urls,
         session=session,
@@ -168,7 +175,10 @@ async def create_product(
     return created_product
 
 
-@product_router.patch("/{product_id}", dependencies=[Depends(vendor_role)])
+@product_router.patch(
+    "/{product_id}",
+    dependencies=[Depends(admin_vendor_role)],  # <-- shared rolechecker dependency
+)
 async def edit_product(
     product_id: str,
     product_data_str: Annotated[str, Form(alias="product_data")],
@@ -183,9 +193,14 @@ async def edit_product(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=e.errors()
         )
 
-    product = await product_service.get_product_by_id_and_vendor(
-        product_id=product_id, vendor_id=current_user.id, session=session
-    )
+    # Only vendors can edit their own products, admins can edit any product.
+    product = None
+    if getattr(current_user, "role", None) == "admin":
+        product = await product_service.get_product(product_id, session)
+    else:
+        product = await product_service.get_product_by_id_and_vendor(
+            product_id=product_id, vendor_id=current_user.id, session=session
+        )
     if not product:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -235,9 +250,15 @@ async def edit_product(
     if not update_data and not image_urls:
         raise HTTPException(status_code=400, detail="No fields provided for updates.")
 
+    vendor_id = (
+        product.vendor_id
+        if getattr(current_user, "role", None) == "admin"
+        else current_user.id
+    )
+
     updated_product = await product_service.update_product(
         product_id=product_id,
-        vendor_id=current_user.id,
+        vendor_id=vendor_id,
         product_data=update_data,
         images=image_urls if image_urls else None,
         session=session,
@@ -247,3 +268,32 @@ async def edit_product(
         raise HTTPException(status_code=400, detail="Failed to update product.")
 
     return updated_product
+
+
+@product_router.delete(
+    "/{product_id}",
+    dependencies=[Depends(admin_vendor_role)],  # <-- rolechecker dependency
+)
+async def delete_product(
+    product_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    current_user: Annotated[Users, Depends(get_current_user)],
+):
+    if getattr(current_user, "role", None) == "admin":
+        deleted = await product_service.delete_product(
+            product_id=product_id,
+            vendor_id=None,
+            session=session,
+        )
+    else:
+        deleted = await product_service.delete_product(
+            product_id=product_id,
+            vendor_id=current_user.id,
+            session=session,
+        )
+
+    if not deleted:
+        raise HTTPException(
+            status_code=404, detail="Product not found or unauthorized."
+        )
+    return {"detail": "Product deleted successfully."}
