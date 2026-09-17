@@ -76,28 +76,39 @@ async def test_get_products(client, session: AsyncSession):
         price=30.00,
         discount=20,
         in_stock=False,
-        images=None,
+        images=[],
         category="Tech",
     )
     session.add(product)
     await session.commit()
     await session.refresh(product)
 
+    # 3. Act: Request the paginated product endpoint
     response = await client.get("/api/v1/products")
 
+    # 4. Assert: Validate response code status
     assert response.status_code == 200
 
     data = response.json()
-    assert isinstance(data, list)
-    assert len(data) == 1
-    assert data[0]["id"] == str(PRODUCT_ID)
-    assert data[0]["name"] == "product1"
-    assert data[0]["description"] == "product1 description"
-    assert data[0]["price"] == 30.00
-    assert data[0]["discount"] == 20
-    assert data[0]["in_stock"] is False
-    assert data[0]["category"] == "Tech"
-    assert data[0]["vendor_id"] == str(vendor.id)
+
+    # Assert pagination root structure is present
+    assert "items" in data
+    assert "next_cursor" in data
+    assert "has_next" in data
+    assert data["has_next"] is False
+
+    items = data["items"]
+    assert isinstance(items, list)
+    assert len(items) == 1
+
+    assert items[0]["id"] == str(PRODUCT_ID)
+    assert items[0]["name"] == "product1"
+    assert items[0]["description"] == "product1 description"
+    assert items[0]["price"] == 30.00
+    assert items[0]["discount"] == 20
+    assert items[0]["in_stock"] is False
+    assert items[0]["category"] == "Tech"
+    assert items[0]["vendor_id"] == str(vendor.id)
 
 
 @pytest.mark.asyncio
@@ -114,6 +125,7 @@ async def test_get_products_not_found(client):
 
 @pytest.mark.asyncio
 async def test_get_products_by_vendor(client, session: AsyncSession):
+    # 1. Arrange: Seed a valid Vendor record
     vendor = Users(
         id=uuid.uuid4(),
         email="vendor@email.com",
@@ -124,6 +136,7 @@ async def test_get_products_by_vendor(client, session: AsyncSession):
     await session.commit()
     await session.refresh(vendor)
 
+    # 2. Arrange: Seed a valid Product linked to this specific vendor
     product = Product(
         id=PRODUCT_ID,
         vendor_id=vendor.id,
@@ -132,29 +145,40 @@ async def test_get_products_by_vendor(client, session: AsyncSession):
         price=30.00,
         discount=20,
         in_stock=False,
-        images=None,
+        images=[],  # Match updated image baseline array schema definition
         category="Tech",
     )
-
     session.add(product)
     await session.commit()
     await session.refresh(product)
 
+    # 3. Act: Request the vendor specific paginated endpoint
     response = await client.get(f"/api/v1/products/vendor/{vendor.id}")
 
+    # 4. Assert: Validate response status
     assert response.status_code == 200
 
     data = response.json()
-    assert isinstance(data, list)
-    assert len(data) == 1
-    assert data[0]["id"] == str(PRODUCT_ID)
-    assert data[0]["name"] == "product1"
-    assert data[0]["description"] == "product1 description"
-    assert data[0]["price"] == 30.00
-    assert data[0]["discount"] == 20
-    assert data[0]["in_stock"] is False
-    assert data[0]["category"] == "Tech"
-    assert data[0]["vendor_id"] == str(vendor.id)
+
+    # Assert pagination wrapper structure elements exist
+    assert "items" in data
+    assert "next_cursor" in data
+    assert "has_next" in data
+    assert data["has_next"] is False  # 1 product total means no subsequent pages
+
+    # Assert structural integrity within the internal items target array
+    items = data["items"]
+    assert isinstance(items, list)
+    assert len(items) == 1
+
+    assert items[0]["id"] == str(PRODUCT_ID)
+    assert items[0]["name"] == "product1"
+    assert items[0]["description"] == "product1 description"
+    assert items[0]["price"] == 30.00
+    assert items[0]["discount"] == 20
+    assert items[0]["in_stock"] is False
+    assert items[0]["category"] == "Tech"
+    assert items[0]["vendor_id"] == str(vendor.id)
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Optional
 import uuid
 from cloudinary.exceptions import BadRequest, Error
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -6,6 +6,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core.cursor import decode_cursor, encode_cursor
 from backend.dependencies import get_current_user
 from backend.errors import ProductsException
 from backend.external.database import get_session
@@ -24,20 +25,46 @@ admin_vendor_role = RoleChecker(["vendor", "admin"])
 
 
 @product_router.get("")
-async def get_products(session: Annotated[AsyncSession, Depends(get_session)]):
-    logger.info("Attempting to get products")
-    products = await product_service.get_all_products(session)
+async def get_products(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    limit: int = 20,
+    cursor: Optional[str] = None,
+    search: Optional[str] = None,
+):
+    logger.info("Attempting to get products with cursor pagination")
+
+    created_at_cursor, id_cursor = decode_cursor(cursor)
+
+    products = await product_service.get_all_products(
+        session=session,
+        limit=limit + 1,
+        created_at_cursor=created_at_cursor,
+        id_cursor=id_cursor,
+        search=search,
+    )
 
     if not products:
         logger.warning("No products found")
         raise ProductsException
 
-    return products
+    has_next = len(products) > limit
+    sliced_products = products[:limit] if has_next else products
+
+    next_cursor = None
+    if has_next and sliced_products:
+        last_item = sliced_products[-1]
+        next_cursor = encode_cursor(last_item.created_at, last_item.id)
+
+    return {"items": sliced_products, "next_cursor": next_cursor, "has_next": has_next}
 
 
 @product_router.get("/vendor/{vendor_id}")
 async def get_vendor_products(
-    vendor_id: str, session: Annotated[AsyncSession, Depends(get_session)]
+    vendor_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    limit: int = 20,
+    cursor: Optional[str] = None,
+    search: Optional[str] = None,
 ):
     try:
         vendor_uuid = uuid.UUID(vendor_id)
@@ -48,7 +75,16 @@ async def get_vendor_products(
             detail="Invalid vendor ID format. Must be a valid UUID.",
         )
 
-    products = await product_service.get_products_by_vendor_id(vendor_uuid, session)
+    created_at_cursor, id_cursor = decode_cursor(cursor)
+
+    products = await product_service.get_products_by_vendor_id(
+        vendor_id=vendor_uuid,
+        session=session,
+        limit=limit + 1,
+        created_at_cursor=created_at_cursor,
+        id_cursor=id_cursor,
+        search=search,
+    )
 
     if not products:
         logger.warning(f"No products found for vendor: {vendor_id}")
@@ -57,7 +93,15 @@ async def get_vendor_products(
             detail=f"No products found for vendor ID {vendor_id}",
         )
 
-    return products
+    has_next = len(products) > limit
+    sliced_products = products[:limit] if has_next else products
+
+    next_cursor = None
+    if has_next and sliced_products:
+        last_item = sliced_products[-1]
+        next_cursor = encode_cursor(last_item.created_at, last_item.id)
+
+    return {"items": sliced_products, "next_cursor": next_cursor, "has_next": has_next}
 
 
 @product_router.get("/{product_id}")

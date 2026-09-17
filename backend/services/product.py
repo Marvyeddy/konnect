@@ -1,14 +1,45 @@
+from datetime import datetime
 from typing import List
 import uuid
-from sqlalchemy import desc, select
+from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.products import Product
 
 
 class ProductService:
-    async def get_all_products(self, session: AsyncSession) -> List[Product]:
-        statement = select(Product).order_by(desc(Product.created_at))
+    async def get_all_products(
+        self,
+        session: AsyncSession,
+        limit: int = 20,
+        created_at_cursor: str = None,
+        id_cursor: str = None,
+        search: str = None,
+    ) -> List[Product]:
+        statement = select(Product).order_by(desc(Product.created_at), desc(Product.id))
+
+        if search:
+            search_query = f"%{search}%"
+            statement = statement.where(
+                or_(
+                    Product.name.ilike(search_query),
+                    Product.description.ilike(search_query),
+                    Product.category.ilike(search_query),
+                )
+            )
+
+        if created_at_cursor and id_cursor:
+            statement = statement.where(
+                or_(
+                    Product.created_at < datetime.fromisoformat(created_at_cursor),
+                    or_(
+                        Product.created_at == datetime.fromisoformat(created_at_cursor),
+                        Product.id < uuid.UUID(id_cursor),
+                    ),
+                )
+            )
+
+        statement = statement.limit(limit)
         result = await session.execute(statement)
         products = result.scalars().all()
         return products
@@ -20,13 +51,42 @@ class ProductService:
         return product
 
     async def get_products_by_vendor_id(
-        self, vendor_id: uuid.UUID, session: AsyncSession
-    ):
+        self,
+        vendor_id: uuid.UUID,
+        session: AsyncSession,
+        limit: int = 20,
+        created_at_cursor: str = None,
+        id_cursor: str = None,
+        search: str = None,
+    ) -> List[Product]:
         statement = (
             select(Product)
             .where(Product.vendor_id == vendor_id)
-            .order_by(desc(Product.created_at))
+            .order_by(desc(Product.created_at), desc(Product.id))
         )
+
+        if search:
+            search_query = f"%{search}%"
+            statement = statement.where(
+                or_(
+                    Product.name.ilike(search_query),
+                    Product.description.ilike(search_query),
+                    Product.category.ilike(search_query),
+                )
+            )
+
+        if created_at_cursor and id_cursor:
+            statement = statement.where(
+                or_(
+                    Product.created_at < datetime.fromisoformat(created_at_cursor),
+                    or_(
+                        Product.created_at == datetime.fromisoformat(created_at_cursor),
+                        Product.id < uuid.UUID(id_cursor),
+                    ),
+                )
+            )
+
+        statement = statement.limit(limit)
         result = await session.execute(statement)
         products = result.scalars().all()
         return products
