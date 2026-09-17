@@ -1,3 +1,4 @@
+import json
 from typing import Annotated, Optional
 import uuid
 from cloudinary.exceptions import BadRequest, Error
@@ -16,6 +17,7 @@ from backend.services.product import ProductService
 from backend.core.logging import get_app_logger
 from backend.authorization import RoleChecker
 import cloudinary.uploader
+from backend.core.caching import cache
 
 product_router = APIRouter()
 product_service = ProductService()
@@ -32,6 +34,11 @@ async def get_products(
     search: Optional[str] = None,
 ):
     logger.info("Attempting to get products with cursor pagination")
+
+    cache_key = f"products:all:limit_{limit}:cursor_{cursor}:search_{search}"
+
+    if cached_response := await cache.get(cache_key):
+        return cached_response
 
     created_at_cursor, id_cursor = decode_cursor(cursor)
 
@@ -55,7 +62,17 @@ async def get_products(
         last_item = sliced_products[-1]
         next_cursor = encode_cursor(last_item.created_at, last_item.id)
 
-    return {"items": sliced_products, "next_cursor": next_cursor, "has_next": has_next}
+    response_payload = {
+        "items": [
+            json.loads(p.model_dump_json()) if hasattr(p, "model_dump_json") else p
+            for p in sliced_products
+        ],
+        "next_cursor": next_cursor,
+        "has_next": has_next,
+    }
+
+    await cache.set(cache_key, response_payload, expiry=600)
+    return response_payload
 
 
 @product_router.get("/vendor/{vendor_id}")
@@ -74,6 +91,10 @@ async def get_vendor_products(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid vendor ID format. Must be a valid UUID.",
         )
+    cache_key = f"vendor_products:all:limit_{limit}:cursor_{cursor}:search_{search}"
+
+    if cache_response := await cache.get(cache_key):
+        return cache_response
 
     created_at_cursor, id_cursor = decode_cursor(cursor)
 
@@ -101,7 +122,17 @@ async def get_vendor_products(
         last_item = sliced_products[-1]
         next_cursor = encode_cursor(last_item.created_at, last_item.id)
 
-    return {"items": sliced_products, "next_cursor": next_cursor, "has_next": has_next}
+    response_payload = {
+        "items": [
+            json.loads(p.model_dump_json()) if hasattr(p, "model_dump_json") else p
+            for p in sliced_products
+        ],
+        "next_cursor": next_cursor,
+        "has_next": has_next,
+    }
+
+    await cache.set(cache_key, response_payload, expiry=600)
+    return response_payload
 
 
 @product_router.get("/{product_id}")

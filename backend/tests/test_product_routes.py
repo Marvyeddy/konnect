@@ -57,7 +57,12 @@ def mock_unauthorized_auth():
 
 
 @pytest.mark.asyncio
-async def test_get_products(client, session: AsyncSession):
+@patch("backend.routers.products.cache")
+async def test_get_products(mock_cache, client, session: AsyncSession):
+    mock_cache.get = AsyncMock(return_value=None)
+    mock_cache.set = AsyncMock()
+
+    # 1. Arrange: Seed a valid Vendor record
     vendor = Users(
         id=uuid.uuid4(),
         email="vendor@email.com",
@@ -68,6 +73,7 @@ async def test_get_products(client, session: AsyncSession):
     await session.commit()
     await session.refresh(vendor)
 
+    # 2. Arrange: Seed a valid Product linked to the vendor
     product = Product(
         id=PRODUCT_ID,
         vendor_id=vendor.id,
@@ -110,9 +116,15 @@ async def test_get_products(client, session: AsyncSession):
     assert items[0]["category"] == "Tech"
     assert items[0]["vendor_id"] == str(vendor.id)
 
+    mock_cache.set.assert_called_once()
+
 
 @pytest.mark.asyncio
-async def test_get_products_not_found(client):
+@patch("backend.routers.products.cache")
+async def test_get_products_not_found(mock_cache, client):
+    mock_cache.get = AsyncMock(return_value=None)
+    mock_cache.set = AsyncMock()
+
     response = await client.get("/api/v1/products")
 
     assert response.status_code == 404
@@ -124,8 +136,11 @@ async def test_get_products_not_found(client):
 
 
 @pytest.mark.asyncio
-async def test_get_products_by_vendor(client, session: AsyncSession):
-    # 1. Arrange: Seed a valid Vendor record
+@patch("backend.routers.products.cache")
+async def test_get_products_by_vendor(mock_cache, client, session: AsyncSession):
+    mock_cache.get = AsyncMock(return_value=None)
+    mock_cache.set = AsyncMock()
+
     vendor = Users(
         id=uuid.uuid4(),
         email="vendor@email.com",
@@ -136,7 +151,6 @@ async def test_get_products_by_vendor(client, session: AsyncSession):
     await session.commit()
     await session.refresh(vendor)
 
-    # 2. Arrange: Seed a valid Product linked to this specific vendor
     product = Product(
         id=PRODUCT_ID,
         vendor_id=vendor.id,
@@ -145,7 +159,7 @@ async def test_get_products_by_vendor(client, session: AsyncSession):
         price=30.00,
         discount=20,
         in_stock=False,
-        images=[],  # Match updated image baseline array schema definition
+        images=[],
         category="Tech",
     )
     session.add(product)
@@ -164,7 +178,7 @@ async def test_get_products_by_vendor(client, session: AsyncSession):
     assert "items" in data
     assert "next_cursor" in data
     assert "has_next" in data
-    assert data["has_next"] is False  # 1 product total means no subsequent pages
+    assert data["has_next"] is False
 
     # Assert structural integrity within the internal items target array
     items = data["items"]
@@ -180,9 +194,16 @@ async def test_get_products_by_vendor(client, session: AsyncSession):
     assert items[0]["category"] == "Tech"
     assert items[0]["vendor_id"] == str(vendor.id)
 
+    # Verify that the endpoint saved the vendor query results to the cache layer
+    mock_cache.set.assert_called_once()
+
 
 @pytest.mark.asyncio
-async def test_get_products_by_vendor_not_found(client):
+@patch("backend.routers.products.cache")
+async def test_get_products_by_vendor_not_found(mock_cache, client):
+    mock_cache.get = AsyncMock(return_value=None)
+    mock_cache.set = AsyncMock()
+
     FALSE_ID = uuid.uuid4()
     response = await client.get(f"/api/v1/products/vendor/{FALSE_ID}")
 
