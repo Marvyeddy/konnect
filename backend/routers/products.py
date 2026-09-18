@@ -37,7 +37,7 @@ async def get_products(
 
     cache_key = f"products:all:limit_{limit}:cursor_{cursor}:search_{search}"
 
-    if cached_response := await cache.get(cache_key):
+    if cached_response := await cache.get(key=cache_key):
         return cached_response
 
     created_at_cursor, id_cursor = decode_cursor(cursor)
@@ -71,7 +71,7 @@ async def get_products(
         "has_next": has_next,
     }
 
-    await cache.set(cache_key, response_payload, expiry=600)
+    await cache.set(key=cache_key, value=response_payload, expiry=600)
     return response_payload
 
 
@@ -93,7 +93,7 @@ async def get_vendor_products(
         )
     cache_key = f"vendor_products:all:limit_{limit}:cursor_{cursor}:search_{search}"
 
-    if cache_response := await cache.get(cache_key):
+    if cache_response := await cache.get(key=cache_key):
         return cache_response
 
     created_at_cursor, id_cursor = decode_cursor(cursor)
@@ -131,7 +131,7 @@ async def get_vendor_products(
         "has_next": has_next,
     }
 
-    await cache.set(cache_key, response_payload, expiry=600)
+    await cache.set(key=cache_key, value=response_payload, expiry=600)
     return response_payload
 
 
