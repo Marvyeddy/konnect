@@ -18,3 +18,10 @@ REFRESH_EXPIRY_TOKEN = 2 * 24 * 60 * 60
 class PermissionLevel(str, Enum):
     LEVEL1 = "manager"
     LEVEL2 = "super_admin"
+
+
+# REPORT
+class ReportStatus(str, Enum):
+    PENDING = "pending"
+    RESOLVED = "resolved"
+    DISMISSED = "dismissed"

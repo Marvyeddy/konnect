@@ -12,7 +12,10 @@ from backend.core.security import hash_pwd
 from backend.dependencies import get_current_user
 from backend.external.database import get_session
 from backend.models.users import Users
+from backend.models.vendor_profile import VendorProfile
+from backend.schemas.vendor_meta import ReportCreate, ReviewCreate
 from backend.schemas.vendors import UserOut, VendorUpdate
+from backend.services.vendor_meta import vendor_meta_service
 
 vendor_router = APIRouter()
 
@@ -123,3 +126,48 @@ async def update_vendor_profile(
     return {
         "message": "Profile updated successfully",
     }
+
+
+@vendor_router.post("/{vendor_id}/reviews", status_code=status.HTTP_201_CREATED)
+async def submit_vendor_review(
+    vendor_id: uuid.UUID,
+    review_in: ReviewCreate,
+    current_user: Annotated[Users, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+):
+    vendor = await session.get(VendorProfile, vendor_id)
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor profile not found.")
+
+    if vendor.user_id == current_user.id:
+        raise HTTPException(
+            status_code=400, detail="You cannot review your own vendor profile."
+        )
+
+    review = await vendor_meta_service.add_vendor_review(
+        buyer_id=current_user.id,
+        vendor_id=vendor_id,
+        review_data=review_in,
+        session=session,
+    )
+    return {"detail": "Review submitted successfully.", "review_id": str(review.id)}
+
+
+@vendor_router.post("/{vendor_id}/reports", status_code=status.HTTP_201_CREATED)
+async def submit_vendor_report(
+    vendor_id: uuid.UUID,
+    report_in: ReportCreate,
+    current_user: Annotated[Users, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+):
+    vendor = await session.get(VendorProfile, vendor_id)
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor profile not found.")
+
+    report = await vendor_meta_service.add_vendor_report(
+        reporter_id=current_user.id,
+        vendor_id=vendor_id,
+        report_data=report_in,
+        session=session,
+    )
+    return {"detail": "Report logged successfully.", "report_id": str(report.id)}

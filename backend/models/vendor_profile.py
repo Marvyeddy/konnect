@@ -8,6 +8,8 @@ from sqlmodel import Column, Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
     from backend.models.users import Users
+    from backend.models.reports import VendorReport
+    from backend.models.reviews import VendorReview
 
 
 class VendorProfile(SQLModel, table=True):
@@ -101,6 +103,8 @@ class VendorProfile(SQLModel, table=True):
         ),
     )
     user: "Users" = Relationship(back_populates="vendor_profile")
+    reviews: list["VendorReview"] = Relationship(back_populates="vendor")
+    reports: list["VendorReport"] = Relationship(back_populates="vendor")
 
     def __repr__(self):
         return (

@@ -5,7 +5,15 @@ from alembic import context
 from backend.core.config import config as cfg
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
-from backend.models import notification, user_profile, users, vendor_profile, products
+from backend.models import (
+    notification,
+    user_profile,
+    users,
+    vendor_profile,
+    products,
+    reviews,
+    reports,
+)
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlmodel import SQLModel
 

@@ -11,6 +11,8 @@ from backend.models.notification import Notification
 from backend.models.user_profile import UserProfile
 from backend.models.vendor_profile import VendorProfile
 from backend.models.products import Product
+from backend.models.reviews import VendorReview
+from backend.models.reports import VendorReport
 
 
 class Users(SQLModel, table=True):
@@ -66,10 +68,26 @@ class Users(SQLModel, table=True):
             onupdate=sa.func.now(),
         ),
     )
-    user_profile: Optional["UserProfile"] = Relationship(back_populates="user")
-    vendor_profile: Optional["VendorProfile"] = Relationship(back_populates="user")
-    notifications: list["Notification"] = Relationship(back_populates="user")
-    products: list["Product"] = Relationship(back_populates="user")
+    user_profile: Optional["UserProfile"] = Relationship(
+        back_populates="user", sa_relationship_kwargs={"cascade": "all, delete-orphan"}
+    )
+    vendor_profile: Optional["VendorProfile"] = Relationship(
+        back_populates="user", sa_relationship_kwargs={"cascade": "all, delete-orphan"}
+    )
+    notifications: list["Notification"] = Relationship(
+        back_populates="user", sa_relationship_kwargs={"cascade": "all, delete-orphan"}
+    )
+    products: list["Product"] = Relationship(
+        back_populates="user", sa_relationship_kwargs={"cascade": "all, delete-orphan"}
+    )
+    reviews_written: list["VendorReview"] = Relationship(
+        back_populates="buyer", sa_relationship_kwargs={"cascade": "all, delete-orphan"}
+    )
+
+    reports_submitted: list["VendorReport"] = Relationship(
+        back_populates="reporter",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
 
     def __repr__(self):
         return f"<User email: {self.email} & username: {self.username}>"
