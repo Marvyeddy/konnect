@@ -13,6 +13,7 @@ from backend.errors import ProductsException
 from backend.external.database import get_session
 from backend.models.users import Users
 from backend.schemas.product import ProductCreate, ProductUpdate
+from backend.services.auth import AuthService
 from backend.services.product import ProductService
 from backend.core.logging import get_app_logger
 from backend.authorization import RoleChecker
@@ -21,6 +22,7 @@ from backend.core.caching import cache
 
 product_router = APIRouter()
 product_service = ProductService()
+auth_service = AuthService()
 logger = get_app_logger(__name__)
 
 admin_vendor_role = RoleChecker(["vendor", "admin"])
@@ -64,7 +66,22 @@ async def get_products(
 
     response_payload = {
         "items": [
-            json.loads(p.model_dump_json()) if hasattr(p, "model_dump_json") else p
+            {
+                **(
+                    json.loads(p.model_dump_json())
+                    if hasattr(p, "model_dump_json")
+                    else p.__dict__
+                ),
+                "vendor_address": getattr(
+                    getattr(
+                        await auth_service.get_user_by_id(p.vendor_id, session),
+                        "vendor_profile",
+                        None,
+                    ),
+                    "address",
+                    None,
+                ),
+            }
             for p in sliced_products
         ],
         "next_cursor": next_cursor,
@@ -98,6 +115,26 @@ async def get_vendor_products(
 
     created_at_cursor, id_cursor = decode_cursor(cursor)
 
+    user = await auth_service.get_user_by_id(vendor_id, session)
+
+    if not user:
+        logger.warning(f"Vendor not found for vendor_id: {vendor_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Vendor with ID {vendor_id} not found.",
+        )
+
+    vendor_profile = getattr(user, "vendor_profile", None)
+
+    if not vendor_profile:
+        logger.warning(
+            f"Missing user_profile or vendor_profile for vendor_id: {vendor_id}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User profile or vendor profile not found for vendor ID {vendor_id}",
+        )
+
     products = await product_service.get_products_by_vendor_id(
         vendor_id=vendor_uuid,
         session=session,
@@ -129,6 +166,7 @@ async def get_vendor_products(
         ],
         "next_cursor": next_cursor,
         "has_next": has_next,
+        "vendor_profile": vendor_profile,
     }
 
     await cache.set(key=cache_key, value=response_payload, expiry=600)
@@ -157,7 +195,16 @@ async def get_product(
             detail=f"No products found for product ID {product_id}",
         )
 
-    return product
+    # Also get vendor address and include it in the response
+    user = (
+        await auth_service.get_user_by_id(product.vendor_id, session)
+        if product
+        else None
+    )
+    vendor_data = getattr(user, "vendor_profile", None) if user else None
+
+    response = {"product": product, "vendor_data": vendor_data}
+    return response
 
 
 @product_router.post(

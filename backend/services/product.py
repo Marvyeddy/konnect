@@ -3,6 +3,7 @@ from typing import List
 import uuid
 from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from backend.models.products import Product
 

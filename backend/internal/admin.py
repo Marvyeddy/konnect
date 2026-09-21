@@ -184,6 +184,68 @@ async def verify_vendor(
     return {"message": f"User {user_id} has been verified as a vendor."}
 
 
+@admin_router.get("/unverify/{user_id}", dependencies=[Depends(admin)])
+async def unverify_vendor(
+    bg_tasks: BackgroundTasks,
+    user_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+):
+    logger.info(f"Attempting to unverify vendor user {user_id}.")
+    try:
+        user_uuid = uuid.UUID(user_id)
+    except ValueError:
+        logger.warning(f"Invalid UUID format for unverify_vendor: {user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user ID format. Must be a valid UUID.",
+        )
+
+    user = await auth_service.get_user_by_id(user_uuid, session)
+    if not user:
+        logger.warning(f"User {user_id} not found for vendor unverification.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User {user_id} not found.",
+        )
+
+    if user.role != "pending":
+        logger.warning(
+            f"User {user_id} is not pending verification. Current role: {user.role}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User is not pending verification.",
+        )
+
+    user.role = "pending"
+
+    try:
+        await session.commit()
+        logger.info(f"User {user_id} has been unverified as a vendor.")
+    except Exception as e:  # noqa: BLE001
+        await session.rollback()
+        logger.error(f"Failed to verify vendor {user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to verify vendor.",
+        )
+
+    context = {
+        "username": user.username,
+        "onboarding_url": f"http://localhost:3000/onboarding/{user_id}",
+    }
+
+    bg_tasks.add_task(
+        send_email,
+        subject="Action Required: Vendor Account Unverified",
+        recipients=[user.email],
+        template_name="vendor_unverified.html",
+        context=context,
+    )
+
+    return {"message": f"User {user_id} has been unverified as a vendor."}
+
+
 # make user or vendor active or inactive
 @admin_router.get("/inactive/{user_id}", dependencies=[Depends(admin)])
 async def user_inactive(
@@ -222,6 +284,39 @@ async def user_inactive(
         )
 
     return {"message": f"User {user_id} has been set to inactive."}
+
+
+@admin_router.get("/vendor/{user_id}", dependencies=[Depends(admin)])
+async def view_vendorprofile(
+    user_id: str, session: Annotated[AsyncSession, Depends(get_session)]
+):
+    logger.info(f"Fetching vendor profile for user {user_id}.")
+    try:
+        user_uuid = uuid.UUID(user_id)
+    except ValueError:
+        logger.warning(f"Invalid UUID format for view_vendorprofile: {user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user ID format. Must be a valid UUID.",
+        )
+
+    user = await auth_service.get_user_by_id(user_uuid, session)
+    if not user:
+        logger.warning(f"User {user_id} not found for vendor profile view.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User {user_id} not found.",
+        )
+
+    profile = getattr(user, "vendor_profile", None)
+    if not profile:
+        logger.warning(f"No vendor profile found for user {user_id}.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No vendor profile found for user {user_id}.",
+        )
+
+    return profile
 
 
 @admin_router.get("/active/{user_id}", dependencies=[Depends(admin)])

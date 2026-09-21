@@ -11,6 +11,7 @@ from backend.dependencies import get_current_user
 from backend.main import app
 from backend.models.products import Product
 from backend.models.users import Users
+from backend.models.vendor_profile import VendorProfile
 from backend.routers.products import admin_vendor_role
 
 PRODUCT_ID = uuid.uuid4()
@@ -141,6 +142,7 @@ async def test_get_products_by_vendor(mock_cache, client, session: AsyncSession)
     mock_cache.get = AsyncMock(return_value=None)
     mock_cache.set = AsyncMock()
 
+    # 1. Create and commit the base User
     vendor = Users(
         id=uuid.uuid4(),
         email="vendor@email.com",
@@ -151,6 +153,22 @@ async def test_get_products_by_vendor(mock_cache, client, session: AsyncSession)
     await session.commit()
     await session.refresh(vendor)
 
+    # 2. Create and commit the VendorProfile (CRITICAL FIX: session.add added)
+    vendor_profile = VendorProfile(
+        id=uuid.uuid4(),
+        user_id=vendor.id,
+        full_name="Marvelous Baker",  # 🚀 CRITICAL FIX: Resolves the NotNullViolationError
+        image="https://example.com",
+        business_license="https://example.com",
+        business_name="Test Bakery",
+        phone_number="+2348000000000",
+        address="123 Cake Lane",
+    )
+    session.add(vendor_profile)
+    await session.commit()
+    await session.refresh(vendor_profile)
+
+    # 3. Create and commit the Product
     product = Product(
         id=PRODUCT_ID,
         vendor_id=vendor.id,
@@ -166,10 +184,10 @@ async def test_get_products_by_vendor(mock_cache, client, session: AsyncSession)
     await session.commit()
     await session.refresh(product)
 
-    # 3. Act: Request the vendor specific paginated endpoint
+    # 4. Act: Request the vendor specific paginated endpoint
     response = await client.get(f"/api/v1/products/vendor/{vendor.id}")
 
-    # 4. Assert: Validate response status
+    # 5. Assert: Validate response status
     assert response.status_code == 200
 
     data = response.json()
@@ -210,7 +228,7 @@ async def test_get_products_by_vendor_not_found(mock_cache, client):
     assert response.status_code == 404
 
     assert response.json() == {
-        "detail": f"No products found for vendor ID {FALSE_ID}",
+        "detail": f"Vendor with ID {FALSE_ID} not found.",
     }
 
 
@@ -246,7 +264,7 @@ async def test_get_product(client, session):
 
     assert response.status_code == 200
 
-    assert response.json()["name"] == "product1"
+    assert response.json()["product"]["name"] == "product1"
 
 
 @pytest.mark.asyncio

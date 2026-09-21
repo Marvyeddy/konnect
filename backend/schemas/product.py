@@ -6,7 +6,7 @@ class ProductCreate(BaseModel):
     name: str
     description: str
     price: float
-    discount: int
+    discount: int = 0
     in_stock: bool
     images: list[str] = []
     category: str

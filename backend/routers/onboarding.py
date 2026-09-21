@@ -119,6 +119,14 @@ async def onboard_vendor(
         )
 
     # -------------------------------------------------------------
+    # PHASE 0: DETECT RE-ONBOARDING (UPSERT CHECK)
+    # -------------------------------------------------------------
+    existing_vendor_query = await session.execute(
+        select(VendorProfile).where(VendorProfile.user_id == current_user.id)
+    )
+    existing_vendor = existing_vendor_query.scalar_one_or_none()
+
+    # -------------------------------------------------------------
     # PHASE 1: BULK VALIDATION (Fail fast before uploading anything)
     # -------------------------------------------------------------
     allowed_img_extensions = {"jpg", "jpeg", "png", "gif", "webp"}
@@ -144,7 +152,6 @@ async def onboard_vendor(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid image content type",
             )
-
         await image.seek(0)
 
     # Validate Business License File
@@ -179,12 +186,13 @@ async def onboard_vendor(
     # -------------------------------------------------------------
     # PHASE 2: CLOUDINARY UPLOADS
     # -------------------------------------------------------------
-    image_url = None
+    # Fallback to current image url if the user is re-onboarding and hasn't uploaded a replacement
+    image_url = existing_vendor.image if existing_vendor else None
+
     if image:
         file_bytes = await image.read()
         try:
             unique_id = uuid.uuid4().hex[:8]
-            # FIX: Added [0] index to resolve the raw array split text bug
             base_img_name = (
                 image.filename.rsplit(".", 1)[0]
                 if "." in image.filename
@@ -229,20 +237,35 @@ async def onboard_vendor(
         )
 
     # -------------------------------------------------------------
-    # PHASE 3: DATABASE PERSISTENCE & NOTIFICATIONS
+    # PHASE 3: DATABASE PERSISTENCE (UPSERT OPERATION)
     # -------------------------------------------------------------
-    new_vendor = VendorProfile(
-        **vendor_data.model_dump(),
-        user_id=current_user.id,
-        image=image_url,
-        business_license=license_url,
+    vendor_fields = vendor_data.model_dump()
+    vendor_fields.update(
+        {
+            "image": image_url,
+            "business_license": license_url,
+            "verified": False,  # Force re-verification status if they fixed an issue
+        }
     )
 
-    await auth_service.update_user(current_user.id, {"role": "pending"}, session)
-    session.add(new_vendor)
-    await session.commit()
-    await session.refresh(new_vendor)
+    if existing_vendor:
+        # Update existing profile attributes directly
+        for key, value in vendor_fields.items():
+            setattr(existing_vendor, key, value)
+        vendor_record = existing_vendor
+    else:
+        # Create a brand new record
+        vendor_record = VendorProfile(**vendor_fields, user_id=current_user.id)
+        session.add(vendor_record)
 
+    # Set user role back to pending for validation check
+    await auth_service.update_user(current_user.id, {"role": "pending"}, session)
+    await session.commit()
+    await session.refresh(vendor_record)
+
+    # -------------------------------------------------------------
+    # PHASE 4: NOTIFICATIONS
+    # -------------------------------------------------------------
     try:
         admin_query = await session.execute(
             select(Users.id).where(Users.role == "admin")
@@ -250,13 +273,24 @@ async def onboard_vendor(
         admin_ids = [str(row[0]) for row in admin_query.all()]
 
         if admin_ids:
+            msg_title = (
+                "Vendor updated onboarding info"
+                if existing_vendor
+                else "New vendor verification required"
+            )
+            msg_body = (
+                f"Vendor '{vendor_data.business_name}' resubmitted details for validation review."
+                if existing_vendor
+                else f"Vendor '{vendor_data.business_name}' has onboarded and requires document review."
+            )
+
             notifications_to_add = [
                 Notification(
                     user_id=admin_id,
-                    title="New vendor verification required",
-                    message=f"Vendor '{vendor_data.business_name}' has onboarded and requires document review.",
+                    title=msg_title,
+                    message=msg_body,
                     notification_type="VENDOR_ONBOARDING",
-                    action_url=f"/admin/vendors/{new_vendor.id}",
+                    action_url=f"/admin/vendor/{vendor_record.id}",
                     is_read=False,
                 )
                 for admin_id in admin_ids
@@ -265,19 +299,19 @@ async def onboard_vendor(
             await session.commit()
 
             live_payload = {
-                "title": "New Vendor Verification Required",
-                "message": f"Vendor '{vendor_data.business_name}' has onboarded and requires document review.",
+                "title": msg_title,
+                "message": msg_body,
                 "notification_type": "VENDOR_ONBOARDING",
-                "action_url": f"/admin/vendors/{new_vendor.id}",
-                "vendor_id": str(new_vendor.id),
+                "action_url": f"/admin/vendors/{vendor_record.id}",
+                "vendor_id": str(vendor_record.id),
             }
             await notification_manager.broadcast_to_admins(admin_ids, live_payload)
     except Exception as log_err:
         logger.error(f"Notification broadcasting failed: {log_err}")
 
     return {
-        "message": "Vendor onboarded successfully",
-        "vendor_id": str(new_vendor.id),
+        "message": "Vendor onboarding configuration processed successfully",
+        "vendor_id": str(vendor_record.id),
         "license_url": license_url,
         "image_url": image_url,
     }

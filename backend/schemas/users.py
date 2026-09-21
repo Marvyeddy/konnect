@@ -45,6 +45,7 @@ class UserOut(BaseModel):
     updated_at: datetime
 
     user_profile: UserProfileOut | None = None
+    vendor_profile: VendorProfileOut | None = None
 
 
 class UserUpdate(BaseModel):

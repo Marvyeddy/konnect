@@ -14,25 +14,13 @@ from backend.external.database import get_session
 from backend.models.users import Users
 from backend.models.vendor_profile import VendorProfile
 from backend.schemas.vendor_meta import ReportCreate, ReviewCreate
-from backend.schemas.vendors import UserOut, VendorUpdate
+from backend.schemas.vendors import VendorUpdate
 from backend.services.vendor_meta import vendor_meta_service
 
 vendor_router = APIRouter()
 
 
-@vendor_router.get("/me", response_model=UserOut)
-async def get_vendor_profile(
-    current_user: Annotated[Users | None, Depends(get_current_user)] = None,
-):
-    if not current_user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required to access this resource.",
-        )
-    return current_user
-
-
-@vendor_router.patch("/me/update")
+@vendor_router.patch("/update")
 async def update_vendor_profile(
     vendor_data_str: Annotated[str, Form(alias="vendor_data")],
     image: Annotated[UploadFile | None, File()] = None,

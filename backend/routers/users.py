@@ -29,7 +29,7 @@ async def get_user_profile(
     return current_user
 
 
-@user_router.patch("/me/update")
+@user_router.patch("/update")
 async def update_profile(
     user_data_str: Annotated[str, Form(alias="user_data")],
     current_user: Annotated[Users, Depends(get_current_user)],
