@@ -1,13 +1,32 @@
-# general
-.env
-
-# python
-.venv
-__pycache__
-.pytest_cache
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
 .ruff_cache
 
-# logs
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfplan
+terraform/terraform.tfvars
+
+# SSH keys
+*.pem
+*.key
+
+# Logs
 logs/
 backend/logs/
 *.log
