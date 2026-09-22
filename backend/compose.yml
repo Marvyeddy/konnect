@@ -1,6 +1,6 @@
 services:
   api:
-    container_name: fastapi-app
+    container_name: konnect
     ports:
       - "8000:80"
     build: .
@@ -34,7 +34,7 @@ services:
   redis:
     image: redis:7
     container_name: redis
-    port:
+    ports:
       - "6379:6379"
     volumes:
       - redis_data:/data

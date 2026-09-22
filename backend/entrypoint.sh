@@ -1,8 +1,13 @@
 #!/bin/bash
-set -ex
 
-# Run migrations
-uv run alembic upgrade head
+set -e
 
-# Start the server
-exec uv run fastapi run main.py --host 0.0.0.0 --port 80
+echo "Running database migrations..."
+
+cd /app
+
+uv run --project /app/backend alembic -c /app/backend/alembic.ini upgrade head
+
+echo "Starting FastAPI..."
+
+exec uv run --project /app/backend uvicorn backend.main:app --host 0.0.0.0 --port 80
