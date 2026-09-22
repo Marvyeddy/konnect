@@ -13,7 +13,7 @@ __pycache__
 !.env.example
 
 terraform
-tests
+tests/
 
 *.log
 README.md
