@@ -12,4 +12,6 @@ def require_middleware(app: FastAPI):
         allow_credentials=True,
     )
 
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
+    app.add_middleware(
+        TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "51.20.14.54"]
+    )
