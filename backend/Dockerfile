@@ -16,7 +16,6 @@ RUN uv sync --frozen --no-cache --no-dev
 
 WORKDIR /app
 
-<<<<<<< HEAD
 COPY backend ./backend
 
 RUN chmod +x backend/entrypoint.sh
@@ -24,10 +23,3 @@ RUN chmod +x backend/entrypoint.sh
 EXPOSE 80
 
 CMD ["./backend/entrypoint.sh"]
-=======
-RUN chmod +x entrypoint.sh
-
-EXPOSE 80
-
-CMD ["./entrypoint.sh"]
->>>>>>> b2f9574c1909572becef00b42b8dd7f11713c5b8
