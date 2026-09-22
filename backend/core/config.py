@@ -7,7 +7,7 @@ ENV_FILE = Path(__file__).parents[1] / ".env"
 
 class Settings(BaseSettings):
     DATABASE_URL: str
-    TEST_DB_URL: str
+    TEST_DB_URL: str | None = None
     JWT_KEY: str
     JWT_ALG: str
     MAIL_USERNAME: str
