@@ -2,10 +2,10 @@ import asyncio
 from logging.config import fileConfig
 
 from alembic import context
-from backend.core.config import config as cfg
+from core.config import config as cfg
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
-from backend.models import (
+from models import (
     notification,
     user_profile,
     users,
