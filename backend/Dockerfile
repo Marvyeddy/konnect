@@ -1,20 +1,16 @@
 FROM python:3.13-slim
 
-WORKDIR /app
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app
 
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONPATH=/app
+WORKDIR /app
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 COPY backend/pyproject.toml backend/uv.lock ./backend/
 
-WORKDIR /app/backend
-
-RUN uv sync --frozen --no-cache --no-dev
-
-WORKDIR /app
+RUN uv sync --frozen --no-cache --no-dev --system --project ./backend
 
 COPY backend ./backend
 
