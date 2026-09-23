@@ -36,3 +36,8 @@ variable "docker_image" {
   description = "Docker image"
   type        = string
 }
+
+variable "elastic_ip" {
+  description = "Existing Elastic IP used by Konnect"
+  type        = string
+}

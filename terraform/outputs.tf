@@ -3,17 +3,17 @@ output "instance_id" {
 }
 
 output "public_ip" {
-  value = aws_eip.konnect.public_ip
+  value = data.aws_eip.konnect.public_ip
 }
 
 output "api_url" {
-  value = "http://${aws_eip.konnect.public_ip}:8000"
+  value = "http://${data.aws_eip.konnect.public_ip}:8000"
 }
 
 output "docs_url" {
-  value = "http://${aws_eip.konnect.public_ip}:8000/docs"
+  value = "http://${data.aws_eip.konnect.public_ip}:8000/docs"
 }
 
 output "ssh_command" {
-  value = "ssh -i ~/.ssh/konnect-ec2 ec2-user@${aws_eip.konnect.public_ip}"
+  value = "ssh -i ~/.ssh/konnect-ec2 ec2-user@${data.aws_eip.konnect.public_ip}"
 }

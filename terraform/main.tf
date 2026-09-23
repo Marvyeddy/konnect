@@ -13,6 +13,11 @@ data "aws_subnets" "default" {
   }
 }
 
+# The Elastic IP is created once outside Terraform and then reused.
+data "aws_eip" "konnect" {
+  public_ip = var.elastic_ip
+}
+
 resource "aws_key_pair" "konnect" {
   key_name   = "${var.project_name}-key"
   public_key = file(var.ssh_public_key_path)
@@ -50,9 +55,9 @@ resource "aws_security_group" "konnect" {
 resource "aws_instance" "konnect" {
   ami           = data.aws_ssm_parameter.amazon_linux.value
   instance_type = var.instance_type
+  subnet_id     = data.aws_subnets.default.ids[0]
 
-  subnet_id = data.aws_subnets.default.ids[0]
-  key_name  = aws_key_pair.konnect.key_name
+  key_name = aws_key_pair.konnect.key_name
 
   vpc_security_group_ids = [
     aws_security_group.konnect.id
@@ -81,11 +86,8 @@ resource "aws_instance" "konnect" {
   }
 }
 
-resource "aws_eip" "konnect" {
-  instance = aws_instance.konnect.id
-  domain   = "vpc"
-
-  tags = {
-    Name = "${var.project_name}-eip"
-  }
+# Attach the existing Elastic IP to the new EC2 instance.
+resource "aws_eip_association" "konnect" {
+  instance_id   = aws_instance.konnect.id
+  allocation_id = data.aws_eip.konnect.id
 }
