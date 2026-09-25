@@ -72,7 +72,7 @@ class AuthService:
         user = await self.get_user_by_id(id, session)
 
         if not user:
-            return None  # <-- ADD THIS LINE
+            return None
 
         for field, value in data.items():
             if hasattr(user, field) and field != "id":
@@ -88,7 +88,7 @@ class AuthService:
         user = await self.get_user_by_id(id, session)
 
         if not user:
-            return False  # <-- guard clause: never try to delete None
+            return False
 
         await session.delete(user)
         await session.commit()

@@ -1,9 +1,10 @@
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 import uuid
-from sqlmodel import Column, Field, Relationship, SQLModel
-import sqlalchemy.dialects.postgresql as pg
+
 import sqlalchemy as sa
+import sqlalchemy.dialects.postgresql as pg
+from sqlmodel import Column, Field, Relationship, SQLModel, UniqueConstraint
 
 from backend.constants.main import ReportStatus
 
@@ -12,8 +13,16 @@ if TYPE_CHECKING:
     from backend.models.vendor_profile import VendorProfile
 
 
+def _report_status_values(enum_cls):
+    return [m.value for m in enum_cls]
+
+
 class VendorReport(SQLModel, table=True):
     __tablename__ = "vendor_report"
+    __table_args__ = (
+        # One report per user per vendor — neutralizes report spam/brigading.
+        UniqueConstraint("reporter_id", "vendor_id", name="uq_report_reporter_vendor"),
+    )
 
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
@@ -46,12 +55,24 @@ class VendorReport(SQLModel, table=True):
             nullable=False,
         )
     )
-    status: ReportStatus | str = Field(
+    status: ReportStatus = Field(
         default=ReportStatus.PENDING,
         sa_column=Column(
-            pg.TEXT,
+            pg.ENUM(
+                ReportStatus,
+                name="report_status",
+                create_type=True,
+                values_callable=_report_status_values,
+            ),
             nullable=False,
             server_default=sa.text("'pending'"),
+        ),
+    )
+    reviewed_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(
+            pg.TIMESTAMP(timezone=True),
+            nullable=True,
         ),
     )
     created_at: datetime = Field(

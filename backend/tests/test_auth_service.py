@@ -23,7 +23,6 @@ async def test_get_user_by_id(session):
     await session.commit()
     await session.refresh(seeded_data)
 
-    # Pass UUID directly, not str(id)
     user = await auth_service.get_user_by_id(seeded_data.id, session)
 
     assert user is not None

@@ -1,14 +1,13 @@
 import json
 from typing import Any
-import redis.asyncio as aioredis  # Adjust based on your preferred redis package version
-from backend.core.config import config as cfg  # Adjust import path
+import redis.asyncio as aioredis
+from backend.core.config import config as cfg
 from backend.core.logging import get_app_logger
 
 
 class RedisCache:
-    def __init__(self):  # FIX: Removed 'async' from constructor
+    def __init__(self):
         self.r = aioredis.from_url(url=cfg.REDIS_URL, decode_responses=True)
-        # Use your custom logger init approach
         self.logger = get_app_logger(__name__)
 
     async def set(self, key: str, value: Any, expiry: int = 3600):
@@ -33,5 +32,4 @@ class RedisCache:
             return None
 
 
-# Instantiate a global cache client instance
 cache = RedisCache()

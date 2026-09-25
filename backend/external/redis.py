@@ -6,7 +6,7 @@ from backend.core.config import config as cfg
 redis = aioredis.from_url(
     url=cfg.REDIS_URL,
     decode_responses=True,
-    socket_connect_timeout=5.0,  # Gives it 5 seconds to connect
+    socket_connect_timeout=5.0,
     socket_timeout=5.0,
     health_check_interval=30,
 )
@@ -18,5 +18,4 @@ async def add_token_to_blocklist(token: str, expiry: int = SESSION_EXPIRY_TOKEN)
 
 async def token_in_blocklist(token: str):
     token = await redis.get(name=token)
-
     return token is not None

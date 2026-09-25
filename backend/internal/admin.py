@@ -5,13 +5,17 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.authorization import PermissionChecker, RoleChecker
+from backend.constants.main import ReportStatus
 from backend.external.database import get_session
 from backend.external.email import send_email
+from backend.schemas.vendor_meta import ReportRead, ReportReview
 from backend.services.auth import AuthService
 from backend.core.logging import get_app_logger
+from backend.services.reports import ReportService
 
 admin_router = APIRouter()
 auth_service = AuthService()
+report_service = ReportService()
 logger = get_app_logger(__name__)
 
 super_admin = PermissionChecker(["super_admin"])
@@ -376,3 +380,29 @@ async def get_all_users_by_role(
         )
     logger.info(f"Found {len(users)} users with role: {role}")
     return users
+
+
+@admin_router.get("", response_model=list[ReportRead], dependencies=[Depends(admin)])
+async def list_reports(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    report_status: Annotated[ReportStatus | None, Query()] = None,
+    vendor_id: Annotated[uuid.UUID | None, Query()] = None,
+):
+    return await report_service.list_reports(
+        session=session, report_status=report_status, vendor_id=vendor_id
+    )
+
+
+@admin_router.patch(
+    "/{report_id}/review", response_model=ReportRead, dependencies=[Depends(admin)]
+)
+async def review_report(
+    report_id: uuid.UUID,
+    review: ReportReview,
+    session: Annotated[AsyncSession, Depends(get_session)],
+):
+    return await report_service.review_report(
+        report_id=report_id,
+        new_status=review.status,
+        session=session,
+    )

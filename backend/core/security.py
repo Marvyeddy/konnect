@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
+import uuid
 
 import jwt
 from argon2 import PasswordHasher
@@ -24,7 +25,9 @@ def create_token(data: dict, token_type: str, expiry: int):
 
     expiry_period = datetime.now(UTC) + timedelta(seconds=expiry)
 
-    data_copy.update({"type": token_type, "exp": expiry_period})
+    data_copy.update(
+        {"type": token_type, "exp": expiry_period, "jti": str(uuid.uuid4())}
+    )
 
     return jwt.encode(payload=data_copy, key=cfg.JWT_KEY, algorithm=cfg.JWT_ALG)
 
@@ -37,7 +40,7 @@ def create_refresh_token(data: dict):
     return create_token(data=data, token_type="refresh", expiry=REFRESH_EXPIRY_TOKEN)
 
 
-def decode_token(token: str) -> dict[str, Any]:
+def decode_token(token: str) -> dict[str, Any] | None:
     try:
         token_data = jwt.decode(jwt=token, key=cfg.JWT_KEY, algorithms=[cfg.JWT_ALG])
         return token_data

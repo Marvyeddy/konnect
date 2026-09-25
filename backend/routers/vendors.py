@@ -12,12 +12,15 @@ from backend.core.security import hash_pwd
 from backend.dependencies import get_current_user
 from backend.external.database import get_session
 from backend.models.users import Users
-from backend.models.vendor_profile import VendorProfile
-from backend.schemas.vendor_meta import ReportCreate, ReviewCreate
+from backend.schemas.vendor_meta import ReportCreate, ReviewCreate, ReviewRead
 from backend.schemas.vendors import VendorUpdate
-from backend.services.vendor_meta import vendor_meta_service
+from backend.services.reports import ReportService
+from backend.services.reviews import VendorReviewService
+
 
 vendor_router = APIRouter()
+report_service = ReportService()
+review_service = VendorReviewService()
 
 
 @vendor_router.patch("/update")
@@ -123,22 +126,37 @@ async def submit_vendor_review(
     current_user: Annotated[Users, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ):
-    vendor = await session.get(VendorProfile, vendor_id)
-    if not vendor:
-        raise HTTPException(status_code=404, detail="Vendor profile not found.")
-
-    if vendor.user_id == current_user.id:
-        raise HTTPException(
-            status_code=400, detail="You cannot review your own vendor profile."
-        )
-
-    review = await vendor_meta_service.add_vendor_review(
+    review = await review_service.add_vendor_review(
         buyer_id=current_user.id,
         vendor_id=vendor_id,
         review_data=review_in,
         session=session,
     )
     return {"detail": "Review submitted successfully.", "review_id": str(review.id)}
+
+
+@vendor_router.get("/{vendor_id}/reviews", response_model=list[ReviewRead])
+async def list_vendor_reviews(
+    vendor_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+):
+    return await review_service.list_vendor_reviews(
+        vendor_id=vendor_id, session=session
+    )
+
+
+@vendor_router.get("/{vendor_id}/rating")
+async def get_vendor_rating(
+    vendor_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+):
+    rating = await review_service.get_vendor_rating(
+        vendor_id=vendor_id, session=session
+    )
+    count = await review_service.count_vendor_reviews(
+        vendor_id=vendor_id, session=session
+    )
+    return {"rating": rating, "review_count": count}  # rating=None -> "No reviews yet"
 
 
 @vendor_router.post("/{vendor_id}/reports", status_code=status.HTTP_201_CREATED)
@@ -148,11 +166,7 @@ async def submit_vendor_report(
     current_user: Annotated[Users, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ):
-    vendor = await session.get(VendorProfile, vendor_id)
-    if not vendor:
-        raise HTTPException(status_code=404, detail="Vendor profile not found.")
-
-    report = await vendor_meta_service.add_vendor_report(
+    report = await report_service.add_vendor_report(
         reporter_id=current_user.id,
         vendor_id=vendor_id,
         report_data=report_in,

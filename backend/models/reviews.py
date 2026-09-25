@@ -1,9 +1,17 @@
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 import uuid
-from sqlmodel import Column, Field, Relationship, SQLModel
-import sqlalchemy.dialects.postgresql as pg
+
 import sqlalchemy as sa
+import sqlalchemy.dialects.postgresql as pg
+from sqlmodel import (
+    CheckConstraint,
+    Column,
+    Field,
+    Relationship,
+    SQLModel,
+    UniqueConstraint,
+)
 
 if TYPE_CHECKING:
     from backend.models.users import Users
@@ -12,6 +20,10 @@ if TYPE_CHECKING:
 
 class VendorReview(SQLModel, table=True):
     __tablename__ = "vendor_review"
+    __table_args__ = (
+        UniqueConstraint("buyer_id", "vendor_id", name="uq_review_buyer_vendor"),
+        CheckConstraint("rating >= 1 AND rating <= 5", name="ck_review_rating_range"),
+    )
 
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
@@ -41,7 +53,7 @@ class VendorReview(SQLModel, table=True):
     rating: int = Field(
         sa_column=Column(
             pg.INTEGER,
-            nullable=False,  # Enforce 1-5 validation rule via schemas later
+            nullable=False,
         )
     )
     comment: str | None = Field(
@@ -58,7 +70,6 @@ class VendorReview(SQLModel, table=True):
         ),
     )
 
-    # Relationships
     buyer: "Users" = Relationship(back_populates="reviews_written")
     vendor: "VendorProfile" = Relationship(back_populates="reviews")
 

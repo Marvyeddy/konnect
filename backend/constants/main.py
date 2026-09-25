@@ -23,5 +23,5 @@ class PermissionLevel(str, Enum):
 # REPORT
 class ReportStatus(str, Enum):
     PENDING = "pending"
-    RESOLVED = "resolved"
+    APPROVED = "approved"
     DISMISSED = "dismissed"
