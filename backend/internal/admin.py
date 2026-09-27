@@ -290,39 +290,6 @@ async def user_inactive(
     return {"message": f"User {user_id} has been set to inactive."}
 
 
-@admin_router.get("/vendor/{user_id}", dependencies=[Depends(admin)])
-async def view_vendorprofile(
-    user_id: str, session: Annotated[AsyncSession, Depends(get_session)]
-):
-    logger.info(f"Fetching vendor profile for user {user_id}.")
-    try:
-        user_uuid = uuid.UUID(user_id)
-    except ValueError:
-        logger.warning(f"Invalid UUID format for view_vendorprofile: {user_id}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid user ID format. Must be a valid UUID.",
-        )
-
-    user = await auth_service.get_user_by_id(user_uuid, session)
-    if not user:
-        logger.warning(f"User {user_id} not found for vendor profile view.")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User {user_id} not found.",
-        )
-
-    profile = getattr(user, "vendor_profile", None)
-    if not profile:
-        logger.warning(f"No vendor profile found for user {user_id}.")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No vendor profile found for user {user_id}.",
-        )
-
-    return profile
-
-
 @admin_router.get("/active/{user_id}", dependencies=[Depends(admin)])
 async def user_active(
     user_id: str, session: Annotated[AsyncSession, Depends(get_session)]
@@ -363,7 +330,7 @@ async def user_active(
 
 
 # Get all users by role using query parameter ?role=vendor
-@admin_router.get("/client", dependencies=[Depends(admin)])
+@admin_router.get("/users", dependencies=[Depends(admin)])
 async def get_all_users_by_role(
     role: Annotated[
         str, Query(..., description='Role to filter users by, e.g. "vendor"')
@@ -380,29 +347,3 @@ async def get_all_users_by_role(
         )
     logger.info(f"Found {len(users)} users with role: {role}")
     return users
-
-
-@admin_router.get("", response_model=list[ReportRead], dependencies=[Depends(admin)])
-async def list_reports(
-    session: Annotated[AsyncSession, Depends(get_session)],
-    report_status: Annotated[ReportStatus | None, Query()] = None,
-    vendor_id: Annotated[uuid.UUID | None, Query()] = None,
-):
-    return await report_service.list_reports(
-        session=session, report_status=report_status, vendor_id=vendor_id
-    )
-
-
-@admin_router.patch(
-    "/{report_id}/review", response_model=ReportRead, dependencies=[Depends(admin)]
-)
-async def review_report(
-    report_id: uuid.UUID,
-    review: ReportReview,
-    session: Annotated[AsyncSession, Depends(get_session)],
-):
-    return await report_service.review_report(
-        report_id=report_id,
-        new_status=review.status,
-        session=session,
-    )

@@ -11,8 +11,8 @@ from backend.schemas.vendor_meta import ReviewCreate
 
 
 class VendorReviewService:
-    @staticmethod
     async def add_vendor_review(
+        self,
         buyer_id: uuid.UUID,
         vendor_id: uuid.UUID,
         review_data: ReviewCreate,
@@ -47,11 +47,11 @@ class VendorReviewService:
                 status_code=409, detail="You have already reviewed this vendor."
             )
         await session.refresh(review)
+        await self.get_vendor_rating(vendor_id, session)
         return review
 
-    @staticmethod
     async def get_vendor_rating(
-        vendor_id: uuid.UUID, session: AsyncSession
+        self, vendor_id: uuid.UUID, session: AsyncSession
     ) -> float | None:
         """
         Compute vendor's average rating and update the denormalized value
@@ -80,8 +80,9 @@ class VendorReviewService:
                 await session.commit()
             return None
 
-    @staticmethod
-    async def count_vendor_reviews(vendor_id: uuid.UUID, session: AsyncSession) -> int:
+    async def count_vendor_reviews(
+        self, vendor_id: uuid.UUID, session: AsyncSession
+    ) -> int:
         result = await session.scalar(
             select(func.count(VendorReview.id)).where(
                 VendorReview.vendor_id == vendor_id
@@ -89,9 +90,8 @@ class VendorReviewService:
         )
         return result or 0
 
-    @staticmethod
     async def list_vendor_reviews(
-        vendor_id: uuid.UUID, session: AsyncSession
+        self, vendor_id: uuid.UUID, session: AsyncSession
     ) -> list[VendorReview]:
         result = await session.scalars(
             select(VendorReview)

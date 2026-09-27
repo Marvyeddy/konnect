@@ -1,10 +1,10 @@
 import cloudinary
 from fastapi import FastAPI
-from guard import SecurityConfig
 from guard.middleware import SecurityMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from backend.core.config import config as cfg
+from backend.core.rate_limit import guard_decorator, security_config
 from backend.errors import require_error
 from backend.internal.admin import admin_router
 from backend.middleware import require_middleware
@@ -12,6 +12,8 @@ from backend.routers.auth import auth_router
 from backend.routers.notifications import notification_router
 from backend.routers.onboarding import onboarding_router
 from backend.routers.products import product_router
+from backend.routers.reports import report_router
+from backend.routers.reviews import review_router
 from backend.routers.users import user_router
 from backend.routers.vendors import vendor_router
 
@@ -34,7 +36,7 @@ app = FastAPI(
 require_middleware(app)
 require_error(app)
 
-security_config = SecurityConfig(enable_redis=False, enable_rate_limiting=True)
+app.state.guard_decorator = guard_decorator
 
 app.add_middleware(
     SessionMiddleware,
@@ -70,3 +72,5 @@ app.include_router(
     notification_router, prefix=f"/api/{version}/notifications", tags=["Notification"]
 )
 app.include_router(product_router, prefix=f"/api/{version}/products", tags=["Product"])
+app.include_router(review_router, prefix=f"/api/{version}/reviews", tags=["Review"])
+app.include_router(report_router, prefix=f"/api/{version}/reports", tags=["Reports"])

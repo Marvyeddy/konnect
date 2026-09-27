@@ -19,6 +19,7 @@ from backend.schemas.onboarding import VendorOnboarding
 from backend.services.auth import AuthService
 from backend.services.sse_manager import notification_manager
 from backend.core.logging import get_app_logger
+from backend.core.rate_limit import guard_decorator
 
 onboarding_router = APIRouter()
 auth_service = AuthService()
@@ -27,6 +28,7 @@ logger = get_app_logger(__name__)
 
 
 @onboarding_router.post("/user")
+@guard_decorator.rate_limit(requests=5, window=3600)
 async def onboard_user(
     full_name: Annotated[str, Form()],
     image: Annotated[UploadFile | None, File()] = None,
@@ -99,6 +101,7 @@ async def onboard_user(
 
 
 @onboarding_router.post("/vendor")
+@guard_decorator.rate_limit(requests=3, window=3600)
 async def onboard_vendor(
     vendor_data_str: Annotated[str, Form(alias="vendor_data")],
     business_license: Annotated[UploadFile, File()],
@@ -270,7 +273,7 @@ async def onboard_vendor(
         admin_query = await session.execute(
             select(Users.id).where(Users.role == "admin")
         )
-        admin_ids = [str(row[0]) for row in admin_query.all()]
+        admin_ids = [str(admin_id) for admin_id in admin_query.scalars().all()]
 
         if admin_ids:
             msg_title = (
@@ -290,7 +293,7 @@ async def onboard_vendor(
                     title=msg_title,
                     message=msg_body,
                     notification_type="VENDOR_ONBOARDING",
-                    action_url=f"/admin/vendor/{vendor_record.id}",
+                    action_url=f"/vendors/{vendor_record.id}",
                     is_read=False,
                 )
                 for admin_id in admin_ids

@@ -8,27 +8,35 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.authorization import RoleChecker
 from backend.core.security import hash_pwd
 from backend.dependencies import get_current_user
 from backend.external.database import get_session
 from backend.models.users import Users
 from backend.schemas.vendor_meta import ReportCreate, ReviewCreate, ReviewRead
 from backend.schemas.vendors import VendorUpdate
+from backend.services.auth import AuthService
 from backend.services.reports import ReportService
 from backend.services.reviews import VendorReviewService
+from backend.core.logging import get_app_logger
+from backend.core.rate_limit import guard_decorator
 
 
 vendor_router = APIRouter()
 report_service = ReportService()
 review_service = VendorReviewService()
+auth_service = AuthService()
+
+logger = get_app_logger(__name__)
 
 
 @vendor_router.patch("/update")
+@guard_decorator.rate_limit(requests=20, window=3600)
 async def update_vendor_profile(
     vendor_data_str: Annotated[str, Form(alias="vendor_data")],
+    current_user: Annotated[Users, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     image: Annotated[UploadFile | None, File()] = None,
-    current_user: Annotated[Users | None, Depends(get_current_user)] = None,
-    session: Annotated[AsyncSession, Depends(get_session)] = None,
 ):
     try:
         vendor_data = VendorUpdate.model_validate_json(vendor_data_str)
@@ -37,33 +45,25 @@ async def update_vendor_profile(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=e.errors()
         )
 
-    updated = False
-    image_url = current_user.vendor_profile.image
+    update_dict = vendor_data.model_dump(exclude_unset=True)
 
+    image_url = None
     if image:
-        allowed_extensions = {"png", "jpg", "jpeg", "gif", "webp"}
+        allowed_extensions = {"jpg", "jpeg", "png", "gif", "webp"}
+        allowed_content_types = {"image/jpeg", "image/png", "image/gif", "image/webp"}
         file_extension = (
             image.filename.split(".")[-1].lower() if "." in image.filename else ""
         )
 
-        if file_extension not in allowed_extensions:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid file extension"
-            )
-
-        allowed_content_types = {"image/jpeg", "image/png", "image/gif", "image/webp"}
-        if image.content_type not in allowed_content_types:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid file content type",
-            )
+        if (
+            file_extension not in allowed_extensions
+            or image.content_type not in allowed_content_types
+        ):
+            raise HTTPException(status_code=400, detail="Invalid file type")
 
         file_bytes = await image.read()
         if len(file_bytes) > 10 * 1024 * 1024:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="File size is too large (Max 10MB)",
-            )
+            raise HTTPException(status_code=400, detail="File size exceeds 10MB")
 
         try:
             unique_id = uuid.uuid4().hex[:8]
@@ -72,7 +72,6 @@ async def update_vendor_profile(
                 if "." in image.filename
                 else image.filename
             )
-
             upload_result = await run_in_threadpool(
                 cloudinary.uploader.upload,
                 file_bytes,
@@ -80,96 +79,66 @@ async def update_vendor_profile(
                 overwrite=True,
             )
             image_url = upload_result.get("secure_url")
-            current_user.vendor_profile.image = image_url
-            updated = True
         except (BadRequest, Error) as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Cloudinary upload failed: {e!s}",
-            )
-    if vendor_data.username is not None:
-        current_user.username = vendor_data.username
-        updated = True
-    if vendor_data.password is not None:
-        current_user.password = hash_pwd(vendor_data.password)
-        updated = True
-    if vendor_data.full_name is not None:
-        current_user.vendor_profile.full_name = vendor_data.full_name
-        updated = True
-    if vendor_data.address is not None:
-        current_user.vendor_profile.address = vendor_data.address
-        updated = True
-    if vendor_data.phone_number is not None:
-        current_user.vendor_profile.phone_number = vendor_data.phone_number
-        updated = True
+            raise HTTPException(status_code=500, detail=f"Upload failed: {e!s}")
 
-    if not updated:
+    # No fields to update at all?
+    if not update_dict and not image_url:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No update fields provided.",
         )
 
-    if session is not None:
-        session.add(current_user)
-        await session.commit()
-        await session.refresh(current_user)
+    for key, value in update_dict.items():
+        if key == "password":
+            current_user.password = hash_pwd(value)
+        elif key == "full_name":
+            current_user.vendor_profile.full_name = value
+        elif key == "address":
+            current_user.vendor_profile.address = value
+        elif key == "phone_number":
+            current_user.vendor_profile.phone_number = value
+        else:
+            setattr(current_user, key, value)
 
-    return {
-        "message": "Profile updated successfully",
-    }
+    if image_url:
+        current_user.vendor_profile.image = image_url
+
+    session.add(current_user)
+    await session.commit()
+    await session.refresh(current_user)
+
+    return {"message": "Profile updated successfully"}
 
 
-@vendor_router.post("/{vendor_id}/reviews", status_code=status.HTTP_201_CREATED)
-async def submit_vendor_review(
-    vendor_id: uuid.UUID,
-    review_in: ReviewCreate,
-    current_user: Annotated[Users, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_session)],
+@vendor_router.get("/{user_id}")
+async def view_vendorprofile(
+    user_id: str, session: Annotated[AsyncSession, Depends(get_session)]
 ):
-    review = await review_service.add_vendor_review(
-        buyer_id=current_user.id,
-        vendor_id=vendor_id,
-        review_data=review_in,
-        session=session,
-    )
-    return {"detail": "Review submitted successfully.", "review_id": str(review.id)}
+    logger.info(f"Fetching vendor profile for user {user_id}.")
+    try:
+        user_uuid = uuid.UUID(user_id)
+    except ValueError:
+        logger.warning(f"Invalid UUID format for view_vendorprofile: {user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user ID format. Must be a valid UUID.",
+        )
 
+    user = await auth_service.get_user_by_id(user_uuid, session)
+    if not user:
+        logger.warning(f"User {user_id} not found for vendor profile view.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User {user_id} not found.",
+        )
 
-@vendor_router.get("/{vendor_id}/reviews", response_model=list[ReviewRead])
-async def list_vendor_reviews(
-    vendor_id: uuid.UUID,
-    session: Annotated[AsyncSession, Depends(get_session)],
-):
-    return await review_service.list_vendor_reviews(
-        vendor_id=vendor_id, session=session
-    )
+    profile = getattr(user, "vendor_profile", None)
+    if not profile:
+        logger.warning(f"No vendor profile found for user {user_id}.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No vendor profile found for user {user_id}.",
+        )
 
-
-@vendor_router.get("/{vendor_id}/rating")
-async def get_vendor_rating(
-    vendor_id: uuid.UUID,
-    session: Annotated[AsyncSession, Depends(get_session)],
-):
-    rating = await review_service.get_vendor_rating(
-        vendor_id=vendor_id, session=session
-    )
-    count = await review_service.count_vendor_reviews(
-        vendor_id=vendor_id, session=session
-    )
-    return {"rating": rating, "review_count": count}  # rating=None -> "No reviews yet"
-
-
-@vendor_router.post("/{vendor_id}/reports", status_code=status.HTTP_201_CREATED)
-async def submit_vendor_report(
-    vendor_id: uuid.UUID,
-    report_in: ReportCreate,
-    current_user: Annotated[Users, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_session)],
-):
-    report = await report_service.add_vendor_report(
-        reporter_id=current_user.id,
-        vendor_id=vendor_id,
-        report_data=report_in,
-        session=session,
-    )
-    return {"detail": "Report logged successfully.", "report_id": str(report.id)}
+    return profile

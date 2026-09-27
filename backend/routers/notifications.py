@@ -33,7 +33,7 @@ async def stream_notifications(
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-@notification_router.patch("/{notification_id}/read")
+@notification_router.patch("/read/{notification_id}")
 async def mark_notification_as_read(
     notification_id: uuid.UUID,
     current_user: Annotated[Users, Depends(get_current_user)],

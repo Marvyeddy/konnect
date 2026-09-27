@@ -1,11 +1,11 @@
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 import uuid
 from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 
 from backend.models.products import Product
+from backend.utils.es_utils import search_entity_ids
 
 
 class ProductService:
@@ -13,22 +13,30 @@ class ProductService:
         self,
         session: AsyncSession,
         limit: int = 20,
-        created_at_cursor: str = None,
-        id_cursor: str = None,
-        search: str = None,
+        created_at_cursor: Optional[str] = None,
+        id_cursor: Optional[str] = None,
+        search: Optional[str] = None,
+        category: Optional[str] = None,
     ) -> List[Product]:
-        statement = select(Product).order_by(desc(Product.created_at), desc(Product.id))
+        statement = select(Product)
 
-        if search:
-            search_query = f"%{search}%"
-            statement = statement.where(
-                or_(
-                    Product.name.ilike(search_query),
-                    Product.description.ilike(search_query),
-                    Product.category.ilike(search_query),
-                )
+        # NEW: Filter using Elasticsearch matched IDs if searching or filtering by category
+        if search or category:
+            matching_ids = await search_entity_ids(
+                index_name="products",
+                search_text=search,
+                search_fields=[
+                    "name^2",
+                    "description",
+                ],  # Prioritize name over description
+                filters={"category": category} if category else None,
             )
+            if not matching_ids:
+                return []  # Terminate early if Elasticsearch returns no results
 
+            statement = statement.where(Product.id.in_(matching_ids))
+
+        # Rest of your exact original cursor pagination and filter logic
         if created_at_cursor and id_cursor:
             statement = statement.where(
                 or_(
@@ -40,7 +48,10 @@ class ProductService:
                 )
             )
 
+        # Standard chronological sort as per your original logic
+        statement = statement.order_by(desc(Product.created_at), desc(Product.id))
         statement = statement.limit(limit)
+
         result = await session.execute(statement)
         products = result.scalars().all()
         return products
@@ -56,26 +67,28 @@ class ProductService:
         vendor_id: uuid.UUID,
         session: AsyncSession,
         limit: int = 20,
-        created_at_cursor: str = None,
-        id_cursor: str = None,
-        search: str = None,
+        created_at_cursor: Optional[str] = None,
+        id_cursor: Optional[str] = None,
+        search: Optional[str] = None,
     ) -> List[Product]:
-        statement = (
-            select(Product)
-            .where(Product.vendor_id == vendor_id)
-            .order_by(desc(Product.created_at), desc(Product.id))
-        )
+        statement = select(Product).where(Product.vendor_id == vendor_id)
 
+        # NEW: Filter using Elasticsearch matched IDs restricted by vendor_id
         if search:
-            search_query = f"%{search}%"
-            statement = statement.where(
-                or_(
-                    Product.name.ilike(search_query),
-                    Product.description.ilike(search_query),
-                    Product.category.ilike(search_query),
-                )
+            matching_ids = await search_entity_ids(
+                index_name="products",
+                search_text=search,
+                search_fields=["name^2", "description"],
+                filters={
+                    "vendor_id": str(vendor_id)
+                },  # Forces Elasticsearch to filter by vendor first
             )
+            if not matching_ids:
+                return []  # Terminate early if no matches are found for this vendor
 
+            statement = statement.where(Product.id.in_(matching_ids))
+
+        # Rest of your exact original cursor pagination and filter logic
         if created_at_cursor and id_cursor:
             statement = statement.where(
                 or_(
@@ -87,7 +100,10 @@ class ProductService:
                 )
             )
 
+        # Standard chronological sort as per your original logic
+        statement = statement.order_by(desc(Product.created_at), desc(Product.id))
         statement = statement.limit(limit)
+
         result = await session.execute(statement)
         products = result.scalars().all()
         return products

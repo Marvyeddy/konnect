@@ -233,7 +233,12 @@ async def test_get_products_by_vendor_not_found(mock_cache, client):
 
 
 @pytest.mark.asyncio
-async def test_get_product(client, session):
+@patch("backend.routers.products.cache")
+async def test_get_product(mock_cache, client, session: AsyncSession):
+    mock_cache.get = AsyncMock(return_value=None)
+    mock_cache.set = AsyncMock()
+
+    # 1. Arrange: Seed a valid Vendor record
     vendor = Users(
         id=uuid.uuid4(),
         email="vendor@email.com",
@@ -244,6 +249,7 @@ async def test_get_product(client, session):
     await session.commit()
     await session.refresh(vendor)
 
+    # 2. Arrange: Seed a valid Product linked to the vendor
     product = Product(
         id=PRODUCT_ID,
         vendor_id=vendor.id,
@@ -252,24 +258,29 @@ async def test_get_product(client, session):
         price=30.00,
         discount=20,
         in_stock=False,
-        images=None,
+        images=[],
         category="Tech",
     )
-
     session.add(product)
     await session.commit()
     await session.refresh(product)
 
-    response = await client.get(f"/api/v1/products/{PRODUCT_ID}")
+    # 3. Act: Request the paginated product endpoint
+    response = await client.get(f"/api/v1/products/{product.id}")
 
+    # 4. Assert: Validate response code status
     assert response.status_code == 200
 
-    assert response.json()["product"]["name"] == "product1"
+    data = response.json()
+
+    assert data["product"]["name"] == "product1"
+
+    mock_cache.set.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_get_product_not_found(client):
-    response = await client.get(f"/api/v1/products/{PRODUCT_ID}")
+    response = await client.get(f"/api/v1/products/{str(PRODUCT_ID)}")
 
     assert response.status_code == 404
 
@@ -302,7 +313,7 @@ async def test_product_success_all_files(mock_cloudinary, client):
         ("images", ("product2.png", b"imagedata2", "image/png")),
     ]
 
-    response = await client.post("/api/v1/products", data=data, files=files)
+    response = await client.post("/api/v1/products/create", data=data, files=files)
 
     assert response.status_code == 201
     res_json = response.json()

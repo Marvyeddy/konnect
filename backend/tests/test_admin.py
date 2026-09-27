@@ -274,7 +274,7 @@ async def test_get_all_users_by_role_success(mock_get_user_by_role, client):
     mock_get_user_by_role.return_value = [mock_user_1, mock_user_2]
 
     response = await client.get(
-        "/api/v1/admin/client", params={"role": "vendor"}, headers=VALID_AUTH_HEADERS
+        "/api/v1/admin/users", params={"role": "vendor"}, headers=VALID_AUTH_HEADERS
     )
 
     # Assertions
@@ -291,7 +291,7 @@ async def test_get_all_users_by_role_not_found(mock_get_user_by_role, client):
     mock_get_user_by_role.return_value = []
 
     response = await client.get(
-        "/api/v1/admin/client",
+        "/api/v1/admin/users",
         params={"role": "nonexistent_role"},
         headers=VALID_AUTH_HEADERS,
     )

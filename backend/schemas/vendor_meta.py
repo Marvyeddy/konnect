@@ -18,9 +18,6 @@ class ReviewRead(BaseModel):
     comment: str | None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 class ReportCreate(BaseModel):
     reason: str = Field(
@@ -39,9 +36,6 @@ class ReportRead(BaseModel):
     status: ReportStatus
     reviewed_at: datetime | None
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class ReportReview(BaseModel):

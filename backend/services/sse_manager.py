@@ -5,25 +5,28 @@ class SSEConnectionManager:
     def __init__(self):
         self.active_connections: dict[str, list[asyncio.Queue]] = {}
 
-    async def connect(self, admin_id: str) -> asyncio.Queue:
+    async def connect(self, id: str) -> asyncio.Queue:
         queue = asyncio.Queue()
-
-        if admin_id not in self.active_connections:
-            self.active_connections[admin_id] = []
-        self.active_connections[admin_id].append(queue)
+        self.active_connections.setdefault(id, []).append(queue)
         return queue
 
-    def disconnect(self, admin_id: str, queue: asyncio.Queue):
-        if admin_id in self.active_connections:
-            self.active_connections[admin_id].remove(queue)
-            if not self.active_connections[admin_id]:
-                del self.active_connections[admin_id]
+    def disconnect(self, id: str, queue: asyncio.Queue):
+        connections = self.active_connections.get(id)
+        if connections and queue in connections:
+            connections.remove(queue)
+            if not connections:
+                del self.active_connections[id]
 
     async def broadcast_to_admins(self, admins_list: list[str], data: dict):
         for admin_id in admins_list:
-            if admin_id in self.active_connections:
-                for queue in self.active_connections[admin_id]:
-                    await queue.put(data)
+            queues = self.active_connections.get(admin_id, [])
+            for queue in queues:
+                await queue.put(data)
+
+    async def broadcast_to_client(self, client_id: str, data: dict):
+        queues = self.active_connections.get(client_id, [])
+        for queue in queues:
+            await queue.put(data)
 
 
 notification_manager = SSEConnectionManager()

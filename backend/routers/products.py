@@ -16,6 +16,7 @@ from backend.schemas.product import ProductCreate, ProductUpdate
 from backend.services.auth import AuthService
 from backend.services.product import ProductService
 from backend.core.logging import get_app_logger
+from backend.core.rate_limit import guard_decorator
 from backend.authorization import RoleChecker
 import cloudinary.uploader
 from backend.core.caching import cache
@@ -26,70 +27,6 @@ auth_service = AuthService()
 logger = get_app_logger(__name__)
 
 admin_vendor_role = RoleChecker(["vendor", "admin"])
-
-
-@product_router.get("")
-async def get_products(
-    session: Annotated[AsyncSession, Depends(get_session)],
-    limit: int = 20,
-    cursor: Optional[str] = None,
-    search: Optional[str] = None,
-):
-    logger.info("Attempting to get products with cursor pagination")
-
-    cache_key = f"products:all:limit_{limit}:cursor_{cursor}:search_{search}"
-
-    if cached_response := await cache.get(key=cache_key):
-        return cached_response
-
-    created_at_cursor, id_cursor = decode_cursor(cursor)
-
-    products = await product_service.get_all_products(
-        session=session,
-        limit=limit + 1,
-        created_at_cursor=created_at_cursor,
-        id_cursor=id_cursor,
-        search=search,
-    )
-
-    if not products:
-        logger.warning("No products found")
-        raise ProductsException
-
-    has_next = len(products) > limit
-    sliced_products = products[:limit] if has_next else products
-
-    next_cursor = None
-    if has_next and sliced_products:
-        last_item = sliced_products[-1]
-        next_cursor = encode_cursor(last_item.created_at, last_item.id)
-
-    response_payload = {
-        "items": [
-            {
-                **(
-                    json.loads(p.model_dump_json())
-                    if hasattr(p, "model_dump_json")
-                    else p.__dict__
-                ),
-                "vendor_address": getattr(
-                    getattr(
-                        await auth_service.get_user_by_id(p.vendor_id, session),
-                        "vendor_profile",
-                        None,
-                    ),
-                    "address",
-                    None,
-                ),
-            }
-            for p in sliced_products
-        ],
-        "next_cursor": next_cursor,
-        "has_next": has_next,
-    }
-
-    await cache.set(key=cache_key, value=response_payload, expiry=600)
-    return response_payload
 
 
 @product_router.get("/vendor/{vendor_id}")
@@ -186,6 +123,12 @@ async def get_product(
             detail="Invalid product ID format. Must be a valid UUID.",
         )
 
+    # -- Add caching here --
+    cache_key = f"product:{product_id}"
+    cached_response = await cache.get(key=cache_key)
+    if cached_response:
+        return cached_response
+
     product = await product_service.get_product(product_uuid, session)
 
     if not product:
@@ -204,16 +147,18 @@ async def get_product(
     vendor_data = getattr(user, "vendor_profile", None) if user else None
 
     response = {"product": product, "vendor_data": vendor_data}
+    await cache.set(key=cache_key, value=response, expiry=600)
     return response
 
 
 @product_router.post(
-    "",
+    "/create",
     status_code=status.HTTP_201_CREATED,
     dependencies=[
         Depends(admin_vendor_role)
     ],  # <-- rolechecker dependency for admin or vendor
 )
+@guard_decorator.rate_limit(requests=20, window=3600)
 async def create_product(
     product_data_str: Annotated[str, Form(alias="product_data")],
     current_user: Annotated[Users, Depends(get_current_user)],
@@ -301,6 +246,7 @@ async def create_product(
     "/{product_id}",
     dependencies=[Depends(admin_vendor_role)],  # <-- shared rolechecker dependency
 )
+@guard_decorator.rate_limit(requests=60, window=3600)
 async def edit_product(
     product_id: str,
     product_data_str: Annotated[str, Form(alias="product_data")],
@@ -419,3 +365,69 @@ async def delete_product(
             status_code=404, detail="Product not found or unauthorized."
         )
     return {"detail": "Product deleted successfully."}
+
+
+@product_router.get("")
+async def get_products(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    limit: int = 20,
+    cursor: Optional[str] = None,
+    search: Optional[str] = None,
+    category: Optional[str] = None,
+):
+    logger.info("Attempting to get products with cursor pagination")
+
+    cache_key = f"products:all:limit_{limit}:cursor_{cursor}:search_{search}"
+
+    if cached_response := await cache.get(key=cache_key):
+        return cached_response
+
+    created_at_cursor, id_cursor = decode_cursor(cursor)
+
+    products = await product_service.get_all_products(
+        session=session,
+        limit=limit + 1,
+        created_at_cursor=created_at_cursor,
+        id_cursor=id_cursor,
+        search=search,
+        category=category,
+    )
+
+    if not products:
+        logger.warning("No products found")
+        raise ProductsException
+
+    has_next = len(products) > limit
+    sliced_products = products[:limit] if has_next else products
+
+    next_cursor = None
+    if has_next and sliced_products:
+        last_item = sliced_products[-1]
+        next_cursor = encode_cursor(last_item.created_at, last_item.id)
+
+    response_payload = {
+        "items": [
+            {
+                **(
+                    json.loads(p.model_dump_json())
+                    if hasattr(p, "model_dump_json")
+                    else p.__dict__
+                ),
+                "vendor_address": getattr(
+                    getattr(
+                        await auth_service.get_user_by_id(p.vendor_id, session),
+                        "vendor_profile",
+                        None,
+                    ),
+                    "address",
+                    None,
+                ),
+            }
+            for p in sliced_products
+        ],
+        "next_cursor": next_cursor,
+        "has_next": has_next,
+    }
+
+    await cache.set(key=cache_key, value=response_payload, expiry=600)
+    return response_payload
