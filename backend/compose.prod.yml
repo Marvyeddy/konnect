@@ -23,12 +23,34 @@ services:
       CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
       CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
       ELASTICSEARCH_URL: ${ELASTICSEARCH_URL}
+      RABBITMQ_URL: ${RABBITMQ_URL}
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
       elasticsearch:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+  admin-notification-worker:
+    image: mace11/konnect:latest
+    container_name: admin-notification--worker
+    restart: unless-stopped
+    command: uv run python -m backend.workers.admin_notification_worker
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_KEY: ${JWT_KEY}
+      JWT_ALG: ${JWT_ALG}
+      ELASTICSEARCH_URL: ${ELASTICSEARCH_URL}
+      RABBITMQ_URL: ${RABBITMQ_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
   db:
     image: postgres:17
@@ -74,7 +96,33 @@ services:
       - es_data:/usr/share/elasticsearch/data
     ports:
       - "9200:9200"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fs http://localhost:9200/_cluster/health || exit 1"
+        ]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
 volumes:
   pg_data:
   redis_data:
   es_data:
+  rabbitmq_data:

@@ -54,19 +54,20 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://testuser:testpass@localhost:5432/testdb
           TEST_DB_URL: postgresql+asyncpg://testuser:testpass@localhost:5432/testdb
-          JWT_KEY: dummy-key-for-testing
+          JWT_KEY: dummy-jwt-key
           JWT_ALG: HS256
-          MAIL_PASSWORD: random-password
-          MAIL_USERNAME: randomemail@gmail.com
-          MAIL_FROM: randomemail@gmail.com
-          MAIL_FROM_NAME: App-name
-          GOOGLE_CLIENT_ID: test-google-client-id
-          GOOGLE_CLIENT_SECRET: test-google-client-secret
+          MAIL_PASSWORD: dummy-mail-password
+          MAIL_USERNAME: dummyuser@example.com
+          MAIL_FROM: dummyuser@example.com
+          MAIL_FROM_NAME: DummyApp
+          GOOGLE_CLIENT_ID: dummy-google-client-id
+          GOOGLE_CLIENT_SECRET: dummy-google-client-secret
           GOOGLE_REDIRECT_URI: http://localhost:8000/api/v1/auth/google/callback
           REDIS_URL: redis://localhost:6379/0
-          CLOUDINARY_CLOUD_NAME: test_cloud_name
-          CLOUDINARY_API_KEY: test_api_key
-          CLOUDINARY_API_SECRET: test_api_secret
+          CLOUDINARY_CLOUD_NAME: dummy_cloud_name
+          CLOUDINARY_API_KEY: dummy_api_key
+          CLOUDINARY_API_SECRET: dummy_api_secret
           ELASTICSEARCH_URL: http://localhost:9200
+          RABBITMQ_URL: amqp://guest:guest@localhost:5672/
         run: |
           uv run pytest -v

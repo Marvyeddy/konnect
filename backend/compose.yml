@@ -8,11 +8,30 @@ services:
     environment:
       DATABASE_URL: "postgresql+asyncpg://postgres:postgres@db:5432/postgres"
       REDIS_URL: "redis://redis:6379/0"
-      ELASTICSEARCH_URL: "http://localhost:9200"
+      ELASTICSEARCH_URL: "http://elasticsearch:9200"
+      RABBITMQ_URL: "amqp://konnect:konnect@rabbitmq:5672/"
     depends_on:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  admin-notification-worker:
+    container_name: admin-notification-worker
+    build: .
+    restart: unless-stopped
+    command: uv run python -m backend.workers.admin_notification_worker
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@db:5432/postgres"
+      REDIS_URL: "redis://redis:6379/0"
+      RABBITMQ_URL: "amqp://konnect:konnect@rabbitmq:5672/"
+      ELASTICSEARCH_URL: "http://elasticsearch:9200"
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
   db:
@@ -41,6 +60,7 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
     container_name: elasticsearch
@@ -53,8 +73,28 @@ services:
       - es_data:/usr/share/elasticsearch/data
     ports:
       - "9200:9200"
- 
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: konnect
+      RABBITMQ_DEFAULT_PASS: konnect
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
 volumes:
   pg_data:
   redis_data:
   es_data:
+  rabbitmq_data:

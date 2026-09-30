@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from typing import Annotated
 
@@ -9,15 +10,16 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.dependencies import get_current_user
+from backend.core.rabbitmq import RabbitMQ
+from backend.dependencies import get_current_user, get_rabbit
 from backend.external.database import get_session
-from backend.models.notification import Notification
+
 from backend.models.user_profile import UserProfile
 from backend.models.users import Users
 from backend.models.vendor_profile import VendorProfile
 from backend.schemas.onboarding import VendorOnboarding
 from backend.services.auth import AuthService
-from backend.services.sse_manager import notification_manager
+
 from backend.core.logging import get_app_logger
 from backend.core.rate_limit import guard_decorator
 
@@ -25,6 +27,21 @@ onboarding_router = APIRouter()
 auth_service = AuthService()
 
 logger = get_app_logger(__name__)
+
+
+async def _upload_to_cloudinary(
+    file_bytes: bytes, folder: str, filename: str, resource_type: str = "image"
+) -> str:
+    unique_id = uuid.uuid4().hex[:8]
+    base = filename.rsplit(".", 1)[0] if "." in filename else filename
+    result = await run_in_threadpool(
+        cloudinary.uploader.upload,
+        file_bytes,
+        public_id=f"{folder}/{base}_{unique_id}",
+        overwrite=True,
+        resource_type=resource_type,
+    )
+    return result["secure_url"]
 
 
 @onboarding_router.post("/user")
@@ -39,6 +56,8 @@ async def onboard_user(
 
     if image:
         allowed_extensions = {"jpg", "jpeg", "png", "gif", "webp"}
+        allowed_content_types = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+
         file_extension = (
             image.filename.split(".")[-1].lower() if "." in image.filename else ""
         )
@@ -55,7 +74,6 @@ async def onboard_user(
                 detail="File size is too large (Max 10MB)",
             )
 
-        allowed_content_types = {"image/jpeg", "image/png", "image/gif", "image/webp"}
         if image.content_type not in allowed_content_types:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -63,21 +81,12 @@ async def onboard_user(
             )
 
         try:
-            unique_id = uuid.uuid4().hex[:8]
-            base_filename = (
-                image.filename.rsplit(".", 1)[0]
-                if "." in image.filename
-                else image.filename
+            image_url = await _upload_to_cloudinary(
+                file_bytes=file_bytes,
+                folder="users/profiles",
+                filename=image.filename,
+                resource_type="image",
             )
-
-            upload_result = await run_in_threadpool(
-                cloudinary.uploader.upload,
-                file_bytes,
-                public_id=f"users/profiles/{base_filename}_{unique_id}",
-                overwrite=True,
-            )
-            image_url = upload_result.get("secure_url")
-
         except (BadRequest, Error) as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -94,10 +103,7 @@ async def onboard_user(
     await session.commit()
     await session.refresh(user_profile)
 
-    return {
-        "message": "User onboarded successfully",
-        "user_profile": user_profile,
-    }
+    return {"message": "User onboarded successfully"}
 
 
 @onboarding_router.post("/vendor")
@@ -108,6 +114,7 @@ async def onboard_vendor(
     image: Annotated[UploadFile | None, File()] = None,
     current_user: Annotated[Users | None, Depends(get_current_user)] = None,
     session: Annotated[AsyncSession, Depends(get_session)] = None,
+    rabbit: Annotated[RabbitMQ, Depends(get_rabbit)] = None,
 ):
     if not current_user:
         raise HTTPException(
@@ -121,20 +128,18 @@ async def onboard_vendor(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=e.errors()
         )
 
-    # -------------------------------------------------------------
-    # PHASE 0: DETECT RE-ONBOARDING (UPSERT CHECK)
-    # -------------------------------------------------------------
     existing_vendor_query = await session.execute(
         select(VendorProfile).where(VendorProfile.user_id == current_user.id)
     )
     existing_vendor = existing_vendor_query.scalar_one_or_none()
 
-    # -------------------------------------------------------------
-    # PHASE 1: BULK VALIDATION (Fail fast before uploading anything)
-    # -------------------------------------------------------------
     allowed_img_extensions = {"jpg", "jpeg", "png", "gif", "webp"}
     allowed_img_types = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
+    allowed_lic_extensions = {"jpg", "jpeg", "png", "pdf"}
+    allowed_lic_types = {"image/jpeg", "image/png", "application/pdf"}
+
+    image_bytes: bytes | None = None
     if image:
         img_ext = image.filename.split(".")[-1].lower() if "." in image.filename else ""
         if img_ext not in allowed_img_extensions:
@@ -155,11 +160,6 @@ async def onboard_vendor(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid image content type",
             )
-        await image.seek(0)
-
-    # Validate Business License File
-    allowed_lic_extensions = {"jpg", "jpeg", "png", "pdf"}
-    allowed_lic_types = {"image/jpeg", "image/png", "application/pdf"}
 
     lic_ext = (
         business_license.filename.split(".")[-1].lower()
@@ -184,133 +184,63 @@ async def onboard_vendor(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid business license file content type",
         )
-    await business_license.seek(0)
 
-    # -------------------------------------------------------------
-    # PHASE 2: CLOUDINARY UPLOADS
-    # -------------------------------------------------------------
-    # Fallback to current image url if the user is re-onboarding and hasn't uploaded a replacement
     image_url = existing_vendor.image if existing_vendor else None
 
-    if image:
-        file_bytes = await image.read()
-        try:
-            unique_id = uuid.uuid4().hex[:8]
-            base_img_name = (
-                image.filename.rsplit(".", 1)[0]
-                if "." in image.filename
-                else image.filename
-            )
+    image_task = (
+        _upload_to_cloudinary(image_bytes, "vendors/profiles", image.filename)
+        if image_bytes is not None
+        else None
+    )
+    license_task = _upload_to_cloudinary(
+        license_bytes,
+        "vendors/licenses",
+        business_license.filename,
+        resource_type="auto",
+    )
 
-            upload_result = await run_in_threadpool(
-                cloudinary.uploader.upload,
-                file_bytes,
-                public_id=f"vendors/profiles/{base_img_name}_{unique_id}",
-                overwrite=True,
-            )
-            image_url = upload_result.get("secure_url")
-        except (BadRequest, Error) as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Profile image upload failed: {e!s}",
-            )
-
-    # Upload Business License
-    lic_bytes = await business_license.read()
+    tasks = [t for t in (image_task, license_task) if t is not None]
     try:
-        unique_id = uuid.uuid4().hex[:8]
-        base_lic_name = (
-            business_license.filename.rsplit(".", 1)[0]
-            if "." in business_license.filename
-            else business_license.filename
-        )
-
-        license_upload_result = await run_in_threadpool(
-            cloudinary.uploader.upload,
-            lic_bytes,
-            public_id=f"vendors/licenses/{base_lic_name}_{unique_id}",
-            overwrite=True,
-            resource_type="auto",
-        )
-        license_url = license_upload_result.get("secure_url")
+        results = await asyncio.gather(*tasks)
     except (BadRequest, Error) as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Business license upload failed: {e!s}",
+            detail=f"Upload to Cloudinary failed: {e!s}",
         )
 
-    # -------------------------------------------------------------
-    # PHASE 3: DATABASE PERSISTENCE (UPSERT OPERATION)
-    # -------------------------------------------------------------
+    if image_task is not None:
+        image_url = results[0]
+    license_url = results[-1]
+
     vendor_fields = vendor_data.model_dump()
     vendor_fields.update(
         {
             "image": image_url,
             "business_license": license_url,
-            "verified": False,  # Force re-verification status if they fixed an issue
+            "verified": False,
         }
     )
 
     if existing_vendor:
-        # Update existing profile attributes directly
         for key, value in vendor_fields.items():
             setattr(existing_vendor, key, value)
         vendor_record = existing_vendor
     else:
-        # Create a brand new record
         vendor_record = VendorProfile(**vendor_fields, user_id=current_user.id)
         session.add(vendor_record)
 
-    # Set user role back to pending for validation check
     await auth_service.update_user(current_user.id, {"role": "pending"}, session)
     await session.commit()
     await session.refresh(vendor_record)
 
-    # -------------------------------------------------------------
-    # PHASE 4: NOTIFICATIONS
-    # -------------------------------------------------------------
-    try:
-        admin_query = await session.execute(
-            select(Users.id).where(Users.role == "admin")
-        )
-        admin_ids = [str(admin_id) for admin_id in admin_query.scalars().all()]
-
-        if admin_ids:
-            msg_title = (
-                "Vendor updated onboarding info"
-                if existing_vendor
-                else "New vendor verification required"
-            )
-            msg_body = (
-                f"Vendor '{vendor_data.business_name}' resubmitted details for validation review."
-                if existing_vendor
-                else f"Vendor '{vendor_data.business_name}' has onboarded and requires document review."
-            )
-
-            notifications_to_add = [
-                Notification(
-                    user_id=admin_id,
-                    title=msg_title,
-                    message=msg_body,
-                    notification_type="VENDOR_ONBOARDING",
-                    action_url=f"/vendors/{vendor_record.id}",
-                    is_read=False,
-                )
-                for admin_id in admin_ids
-            ]
-            session.add_all(notifications_to_add)
-            await session.commit()
-
-            live_payload = {
-                "title": msg_title,
-                "message": msg_body,
-                "notification_type": "VENDOR_ONBOARDING",
-                "action_url": f"/admin/vendors/{vendor_record.id}",
-                "vendor_id": str(vendor_record.id),
-            }
-            await notification_manager.broadcast_to_admins(admin_ids, live_payload)
-    except Exception as log_err:
-        logger.error(f"Notification broadcasting failed: {log_err}")
+    await rabbit.publish(
+        "vendor.updated" if existing_vendor else "vendor.onboarded",
+        {
+            "vendor_id": str(vendor_record.id),
+            "business_name": vendor_data.business_name,
+            "is_update": bool(existing_vendor),
+        },
+    )
 
     return {
         "message": "Vendor onboarding configuration processed successfully",
