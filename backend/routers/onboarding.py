@@ -1,15 +1,13 @@
 import asyncio
-import uuid
 from typing import Annotated
 
-import cloudinary.uploader
 from cloudinary.exceptions import BadRequest, Error
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.constants.cloudinary import upload_to_cloudinary
 from backend.core.rabbitmq import RabbitMQ
 from backend.dependencies import get_current_user, get_rabbit
 from backend.external.database import get_session
@@ -27,21 +25,6 @@ onboarding_router = APIRouter()
 auth_service = AuthService()
 
 logger = get_app_logger(__name__)
-
-
-async def _upload_to_cloudinary(
-    file_bytes: bytes, folder: str, filename: str, resource_type: str = "image"
-) -> str:
-    unique_id = uuid.uuid4().hex[:8]
-    base = filename.rsplit(".", 1)[0] if "." in filename else filename
-    result = await run_in_threadpool(
-        cloudinary.uploader.upload,
-        file_bytes,
-        public_id=f"{folder}/{base}_{unique_id}",
-        overwrite=True,
-        resource_type=resource_type,
-    )
-    return result["secure_url"]
 
 
 @onboarding_router.post("/user")
@@ -81,7 +64,7 @@ async def onboard_user(
             )
 
         try:
-            image_url = await _upload_to_cloudinary(
+            image_url = await upload_to_cloudinary(
                 file_bytes=file_bytes,
                 folder="users/profiles",
                 filename=image.filename,
@@ -141,7 +124,9 @@ async def onboard_vendor(
 
     image_bytes: bytes | None = None
     if image:
-        img_ext = image.filename.split(".")[-1].lower() if "." in image.filename else ""
+        image_filename = image.filename or ""
+
+        img_ext = image_filename.split(".")[-1].lower() if "." in image_filename else ""
         if img_ext not in allowed_img_extensions:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -161,11 +146,9 @@ async def onboard_vendor(
                 detail="Invalid image content type",
             )
 
-    lic_ext = (
-        business_license.filename.split(".")[-1].lower()
-        if "." in business_license.filename
-        else ""
-    )
+    license_filename = business_license.filename or ""
+
+    lic_ext = license_filename.split(".")[-1].lower() if "." in license_filename else ""
     if lic_ext not in allowed_lic_extensions:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -187,30 +170,29 @@ async def onboard_vendor(
 
     image_url = existing_vendor.image if existing_vendor else None
 
-    image_task = (
-        _upload_to_cloudinary(image_bytes, "vendors/profiles", image.filename)
-        if image_bytes is not None
-        else None
-    )
-    license_task = _upload_to_cloudinary(
-        license_bytes,
-        "vendors/licenses",
-        business_license.filename,
-        resource_type="auto",
-    )
-
-    tasks = [t for t in (image_task, license_task) if t is not None]
     try:
-        results = await asyncio.gather(*tasks)
+        if image_bytes is not None:
+            image_url, license_url = await asyncio.gather(
+                upload_to_cloudinary(image_bytes, "vendors/profiles", image_filename),
+                upload_to_cloudinary(
+                    license_bytes,
+                    "vendors/licenses",
+                    license_filename,
+                    resource_type="auto",
+                ),
+            )
+        else:
+            license_url = await upload_to_cloudinary(
+                license_bytes,
+                "vendors/licenses",
+                license_filename,
+                resource_type="auto",
+            )
     except (BadRequest, Error) as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Upload to Cloudinary failed: {e!s}",
         )
-
-    if image_task is not None:
-        image_url = results[0]
-    license_url = results[-1]
 
     vendor_fields = vendor_data.model_dump()
     vendor_fields.update(
@@ -236,7 +218,7 @@ async def onboard_vendor(
     await rabbit.publish(
         "vendor.updated" if existing_vendor else "vendor.onboarded",
         {
-            "vendor_id": str(vendor_record.id),
+            "vendor_id": str(vendor_record.user_id),
             "business_name": vendor_data.business_name,
             "is_update": bool(existing_vendor),
         },

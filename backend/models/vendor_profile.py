@@ -67,11 +67,6 @@ class VendorProfile(SQLModel, table=True):
             server_default=sa.text("3.0"),
         ),
     )
-    # Replaces report_count. Vendors start active; 3 APPROVED reports deactivate them.
-    is_active: bool = Field(
-        default=True,
-        sa_column=Column(pg.BOOLEAN, nullable=False, server_default=sa.true()),
-    )
     verified: bool = Field(
         default=False,
         sa_column=Column(pg.BOOLEAN, nullable=False, server_default=sa.false()),
@@ -113,6 +108,5 @@ class VendorProfile(SQLModel, table=True):
             f"business_name={self.business_name!r}, "
             f"address={self.address!r}, "
             f"rating={self.rating}, verified={self.verified}, "
-            f"is_active={self.is_active}, "
             f"created_at={self.created_at}, updated_at={self.updated_at})>"
         )

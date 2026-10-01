@@ -15,6 +15,7 @@ from fastapi import (
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from jinja2.utils import F
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.constants.main import REFRESH_EXPIRY_TOKEN, SESSION_EXPIRY_TOKEN
@@ -68,6 +69,7 @@ async def create_new_user(
     session: Annotated[AsyncSession, Depends(get_session)],
 ):
     email = user_data.email
+    username = user_data.username
 
     logger.info(f"Signup attempt for email: {email}")
 
@@ -75,6 +77,14 @@ async def create_new_user(
 
     if user is not None:
         logger.warning(f"Signup failed: User with email {email} already exists.")
+        raise UserAlreadyExists
+
+    # Check if the username already exists
+    username_exists = await session.execute(
+        select(Users).where(Users.username == username)
+    )
+    if username_exists.scalar_one_or_none() is not None:
+        logger.warning(f"Signup failed: Username {username} already exists.")
         raise UserAlreadyExists
 
     new_user = await auth_service.create_user(user_data, session)

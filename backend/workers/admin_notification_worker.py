@@ -2,11 +2,10 @@ import asyncio
 import json
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.config import config as cfg
 from backend.core.rabbitmq import RabbitMQ
-from backend.external.database import get_session
+from backend.external.database import AsyncSessionLocal
 from backend.models.notification import Notification
 from backend.models.users import Users
 
@@ -16,23 +15,22 @@ async def process_event(
     payload: dict,
     session_factory,
 ):
+    print(f"RECEIVED EVENT: {routing_key}")
+    print(f"PAYLOAD: {payload}")
+
     async with session_factory() as session:
         result = await session.execute(select(Users.id).where(Users.role == "admin"))
 
-        admin_ids = [str(uid) for uid in result.scalars().all()]
+        admin_ids = [uid for uid in result.scalars().all()]
+
+        print(f"ADMIN IDS: {admin_ids}")
 
         if not admin_ids:
+            print("NO ADMIN USERS FOUND")
             return
 
-        is_update = payload.get(
-            "is_update",
-            False,
-        )
-
-        business_name = payload.get(
-            "business_name",
-            "",
-        )
+        is_update = payload.get("is_update", False)
+        business_name = payload.get("business_name", "")
 
         title = (
             "Vendor updated onboarding info"
@@ -46,21 +44,23 @@ async def process_event(
             else f"Vendor '{business_name}' requires document review."
         )
 
-        session.add_all(
-            [
-                Notification(
-                    user_id=admin_id,
-                    title=title,
-                    message=body,
-                    notification_type="VENDOR_ONBOARDING",
-                    action_url=(f"/vendors/{payload['vendor_id']}"),
-                    is_read=False,
-                )
-                for admin_id in admin_ids
-            ]
-        )
+        notifications = [
+            Notification(
+                user_id=admin_id,
+                title=title,
+                message=body,
+                notification_type="VENDOR_ONBOARDING",
+                action_url=f"/vendors/{payload['vendor_id']}",
+                is_read=False,
+            )
+            for admin_id in admin_ids
+        ]
+
+        session.add_all(notifications)
 
         await session.commit()
+
+        print(f"CREATED {len(notifications)} NOTIFICATIONS")
 
 
 async def main():
@@ -100,7 +100,7 @@ async def main():
                     await process_event(
                         message.routing_key,
                         payload,
-                        get_session,
+                        AsyncSessionLocal,
                     )
 
     finally:

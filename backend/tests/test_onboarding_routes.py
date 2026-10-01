@@ -30,7 +30,7 @@ def mock_onboarding_auth_globally():
 
 @pytest.mark.asyncio
 @patch(
-    "backend.routers.onboarding._upload_to_cloudinary"
+    "backend.routers.onboarding.upload_to_cloudinary"
 )  # 1. Patch the local helper function
 async def test_onboard_user_success_with_image(mock_upload, client, session):
     """Test onboarding completes successfully when a valid image file is uploaded."""
@@ -73,7 +73,7 @@ async def test_onboard_user_success_with_image(mock_upload, client, session):
 
 
 @pytest.mark.asyncio
-@patch("backend.routers.onboarding._upload_to_cloudinary")
+@patch("backend.routers.onboarding.upload_to_cloudinary")
 async def test_onboard_user_success_without_image(mock_upload, client, session):
     """Test onboarding passes cleanly when no profile image asset is provided."""
     parent_user = Users(
@@ -141,7 +141,7 @@ async def test_onboard_user_fail_file_size_exceeded(client):
 
 
 @pytest.mark.asyncio
-@patch("backend.routers.onboarding._upload_to_cloudinary")
+@patch("backend.routers.onboarding.upload_to_cloudinary")
 async def test_onboard_user_fail_cloudinary_exception(mock_upload, client, session):
     parent_user = Users(
         id=MOCK_USER_ID,
@@ -174,7 +174,7 @@ async def test_onboard_user_fail_cloudinary_exception(mock_upload, client, sessi
 @patch(
     "backend.routers.onboarding.auth_service.update_user"
 )  # 1. Patch auth_service if needed
-@patch("backend.routers.onboarding._upload_to_cloudinary")
+@patch("backend.routers.onboarding.upload_to_cloudinary")
 async def test_onboard_vendor_success_no_optional_image(
     mock_upload, mock_update_user, client, session
 ):

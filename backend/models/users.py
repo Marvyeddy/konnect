@@ -27,9 +27,13 @@ class Users(SQLModel, table=True):
             server_default=sa.text("gen_random_uuid()"),
         ),
     )
-    email: str = Field(sa_column=Column(pg.VARCHAR(255), nullable=False, index=True))
+    email: str = Field(
+        sa_column=Column(pg.VARCHAR(255), nullable=False, index=True, unique=True)
+    )
     password: str = Field(sa_column=Column(pg.VARCHAR(255), nullable=True))
-    username: str = Field(sa_column=Column(pg.VARCHAR(255), nullable=False))
+    username: str = Field(
+        sa_column=Column(pg.VARCHAR(255), nullable=False, unique=True)
+    )
     role: Roles = Field(
         default=Roles.USER,
         sa_column=Column(

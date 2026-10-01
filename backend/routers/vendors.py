@@ -8,12 +8,10 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.authorization import RoleChecker
 from backend.core.security import hash_pwd
 from backend.dependencies import get_current_user
 from backend.external.database import get_session
 from backend.models.users import Users
-from backend.schemas.vendor_meta import ReportCreate, ReviewCreate, ReviewRead
 from backend.schemas.vendors import VendorUpdate
 from backend.services.auth import AuthService
 from backend.services.reports import ReportService
