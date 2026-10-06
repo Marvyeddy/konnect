@@ -6,12 +6,13 @@ from backend.services.sse_manager import notification_manager
 from backend.core.config import config as cfg
 
 
-async def listen_for_notifications():
-    redis_client = redis.from_url(
-        cfg.REDIS_URL,
-        decode_responses=True,
-    )
+redis_client = redis.from_url(
+    cfg.REDIS_URL,
+    decode_responses=True,
+)
 
+
+async def listen_for_notifications():
     pubsub = redis_client.pubsub()
 
     await pubsub.subscribe("notifications")
@@ -32,7 +33,6 @@ async def listen_for_notifications():
                 recipient_ids,
                 data,
             )
-
     finally:
         await pubsub.unsubscribe("notifications")
         await pubsub.aclose()
