@@ -68,6 +68,6 @@ jobs:
           CLOUDINARY_API_KEY: dummy_api_key
           CLOUDINARY_API_SECRET: dummy_api_secret
           ELASTICSEARCH_URL: http://localhost:9200
-          RABBITMQ_URL: amqp://guest:guest@localhost:5672/
+          CELERY_BROKER_URL: amqp://guest:guest@localhost:5672/
         run: |
           uv run pytest -v

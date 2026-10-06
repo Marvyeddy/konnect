@@ -3,7 +3,6 @@ from typing import Annotated
 
 from fastapi import Cookie, Depends, Header, HTTPException, Query, Request, status
 
-from backend.core.rabbitmq import RabbitMQ
 from backend.core.security import decode_token
 from backend.external.database import get_session
 from backend.external.redis import token_in_blocklist
@@ -113,7 +112,3 @@ async def get_user_permission(
     if not current_user or not permission:
         raise credentials_exception
     return permission
-
-
-async def get_rabbit(request: Request) -> RabbitMQ:
-    return request.app.state.rabbit

@@ -6,7 +6,7 @@ import pytest
 from cloudinary.exceptions import BadRequest
 from fastapi import status
 
-from backend.dependencies import get_current_user, get_rabbit
+from backend.dependencies import get_current_user
 from backend.main import app
 from backend.models.users import Users
 
@@ -171,12 +171,13 @@ async def test_onboard_user_fail_cloudinary_exception(mock_upload, client, sessi
 
 
 @pytest.mark.asyncio
-@patch(
-    "backend.routers.onboarding.auth_service.update_user"
-)  # 1. Patch auth_service if needed
+@patch("backend.routers.onboarding.auth_service.update_user")
 @patch("backend.routers.onboarding.upload_to_cloudinary")
+@patch(
+    "backend.routers.onboarding.notify_admins_vendor_onboarding"
+)  # Mock the Celery task
 async def test_onboard_vendor_success_no_optional_image(
-    mock_upload, mock_update_user, client, session
+    mock_notify_task, mock_upload, mock_update_user, client, session
 ):
     """Test onboarding passes when the optional profile image payload is missing."""
 
@@ -192,12 +193,9 @@ async def test_onboard_vendor_success_no_optional_image(
     await session.commit()
     await session.refresh(parent_user)
 
-    # 2. Correct the mock value structure to return a string directly (what your route reads)
+    # Correct the mock value structures
     mock_upload.return_value = "https://cloudinary.com"
     mock_update_user.return_value = None
-
-    mock_rabbit = AsyncMock()
-    app.dependency_overrides[get_rabbit] = lambda: mock_rabbit
 
     data = {
         "vendor_data": json.dumps(
@@ -218,17 +216,22 @@ async def test_onboard_vendor_success_no_optional_image(
             "/api/v1/onboarding/vendor", data=data, files=files
         )
 
-        # 4. Assertions match the actual return signature of your route
+        # Assertions match your actual route's response keys
         assert response.status_code == status.HTTP_200_OK
         res_payload = response.json()
-        assert res_payload["image_url"] is None
-        assert res_payload["license_url"] == "https://cloudinary.com"
+        assert res_payload["message"] == "Vendor onboarding submitted successfully"
+        assert "vendor_id" in res_payload
 
-        # Verify message broker broadcast was called correctly
-        mock_rabbit.publish.assert_called_once()
+        # ✅ FIXED ASSERTION: Pull the actual parameters passed to the mock to verify them accurately
+        assert mock_notify_task.delay.called
+        kwargs = mock_notify_task.delay.call_args.kwargs
+
+        # Verify specific fields safely without failing on internal types (like Int/Str/UUID)
+        assert str(kwargs["vendor_id"]) == str(res_payload["vendor_id"])
+        assert kwargs["business_name"] == "Ginger Block"
+        assert "is_update" in kwargs
 
     finally:
-        # Always clean up dependency overrides to protect subsequent tests
         app.dependency_overrides.clear()
 
 
@@ -239,24 +242,16 @@ async def test_onboard_vendor_success_no_optional_image(
 
 @pytest.mark.asyncio
 async def test_onboard_vendor_fail_invalid_json_payload(client):
-    app.state.rabbit = MagicMock()
-
     data = {"vendor_data": "corrupt_non_json_string_value_here"}
     files = {"business_license": ("license.png", b"data", "image/png")}
 
-    try:
-        response = await client.post(
-            "/api/v1/onboarding/vendor", data=data, files=files
-        )
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-    finally:
-        delattr(app.state, "rabbit")
+    response = await client.post("/api/v1/onboarding/vendor", data=data, files=files)
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
 @pytest.mark.asyncio
 async def test_onboard_vendor_fail_invalid_image_extension(client):
     """Verify endpoint validation filters bad image file extensions."""
-    app.state.rabbit = MagicMock()
     data = {
         "vendor_data": json.dumps(
             {
@@ -272,20 +267,14 @@ async def test_onboard_vendor_fail_invalid_image_extension(client):
         "business_license": ("license.png", b"license_bytes", "image/png"),
     }
 
-    try:
-        response = await client.post(
-            "/api/v1/onboarding/vendor", data=data, files=files
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == "Invalid image file extension"
-    finally:
-        delattr(app.state, "rabbit")
+    response = await client.post("/api/v1/onboarding/vendor", data=data, files=files)
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Invalid image file extension"
 
 
 @pytest.mark.asyncio
 async def test_onboard_vendor_fail_license_size_exceeded(client):
     """Verify endpoint drops license uploads breaking the 15MB file ceiling constraint."""
-    app.state.rabbit = MagicMock()
     data = {
         "vendor_data": json.dumps(
             {
@@ -301,11 +290,6 @@ async def test_onboard_vendor_fail_license_size_exceeded(client):
     huge_payload = b"0" * (16 * 1024 * 1024)
     files = {"business_license": ("massive_doc.pdf", huge_payload, "application/pdf")}
 
-    try:
-        response = await client.post(
-            "/api/v1/onboarding/vendor", data=data, files=files
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Business license size is too large" in response.json()["detail"]
-    finally:
-        delattr(app.state, "rabbit")
+    response = await client.post("/api/v1/onboarding/vendor", data=data, files=files)
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Business license size is too large" in response.json()["detail"]

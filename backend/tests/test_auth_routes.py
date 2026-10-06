@@ -13,8 +13,10 @@ from backend.models.users import Users
 # CREATE USER TEST
 # ---------------------------------
 @pytest.mark.asyncio
-@patch("backend.routers.auth.send_email")
-async def test_create_new_user_success(mock_send_email, client, session: AsyncSession):
+@patch("backend.routers.auth.send_welcome_email_task")
+async def test_create_new_user_success(
+    mock_send_welcome, client, session: AsyncSession
+):
     payload = {
         "email": "testuser@gmail.com",
         "username": "testuser",
@@ -35,13 +37,19 @@ async def test_create_new_user_success(mock_send_email, client, session: AsyncSe
     assert response.cookies["session_token"] == data["session_token"]
     assert response.cookies["refresh_token"] == data["refresh_token"]
 
-    mock_send_email.assert_called_once()
+    mock_send_welcome.delay.assert_called_once_with(
+        email="testuser@gmail.com",
+        context={
+            "subject": "Welcome to Konnect!",
+            "body_text": "Hi testuser",
+        },
+    )
 
 
 @pytest.mark.asyncio
-@patch("backend.routers.auth.send_email", new_callable=AsyncMock)
+@patch("backend.routers.auth.send_welcome_email_task")
 async def test_current_user_already_exists(
-    mock_send_email, client, session: AsyncSession
+    mock_send_welcome, client, session: AsyncSession
 ):
     seeded_data = Users(
         id=uuid.uuid4(),
@@ -64,7 +72,7 @@ async def test_current_user_already_exists(
 
     assert response.status_code == 409
 
-    mock_send_email.assert_not_called()
+    mock_send_welcome.assert_not_called()
 
 
 # ----------------------------------------

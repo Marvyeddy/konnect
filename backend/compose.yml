@@ -17,21 +17,25 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-
-  admin-notification-worker:
-    container_name: admin-notification-worker
-    build: .
-    restart: unless-stopped
-    command: uv run python -m backend.workers.admin_notification_worker
-    environment:
-      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@db:5432/postgres"
-      REDIS_URL: "redis://redis:6379/0"
-      RABBITMQ_URL: "amqp://konnect:konnect@rabbitmq:5672/"
-      ELASTICSEARCH_URL: "http://elasticsearch:9200"
+  
+  celery:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: konnect-celery
+    command: >
+      uv run celery
+      -A backend.celery_app:celery_app
+      worker
+      --loglevel=info
+    env_file:
+      - .env
     depends_on:
+      rabbitmq:
+        condition: service_healthy
       db:
         condition: service_healthy
-      rabbitmq:
+      redis:
         condition: service_healthy
 
   db:

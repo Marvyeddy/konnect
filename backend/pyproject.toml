@@ -5,11 +5,11 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "aio-pika>=10.1.0",
     "alembic>=1.19.1",
     "argon2-cffi>=25.1.0",
     "asyncpg>=0.31.0",
     "authlib>=1.7.2",
+    "celery[rabbitmq]>=5.6.3",
     "cloudinary>=1.46.2",
     "elasticsearch>=9.5.1",
     "fastapi-guard>=7.6.0",

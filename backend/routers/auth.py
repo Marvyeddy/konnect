@@ -43,6 +43,7 @@ from backend.external.redis import add_token_to_blocklist
 from backend.models.users import Users
 from backend.schemas.auth import ResetIn, UserIn, UserLogin
 from backend.services.auth import AuthService
+from backend.tasks.email_tasks import send_welcome_email_task
 
 auth_router = APIRouter()
 auth_service = AuthService()
@@ -64,7 +65,6 @@ oauth.register(
 @auth_router.post("/signup", status_code=status.HTTP_201_CREATED)
 @guard_decorator.rate_limit(requests=5, window=3600)
 async def create_new_user(
-    bg_tasks: BackgroundTasks,
     user_data: UserIn,
     session: Annotated[AsyncSession, Depends(get_session)],
 ):
@@ -96,13 +96,7 @@ async def create_new_user(
         "body_text": (f"Hi {new_user.username}"),
     }
 
-    bg_tasks.add_task(
-        send_email,
-        subject="Welcome to Konnect!",
-        recipients=[new_user.email],
-        template_name="welcome.html",
-        context=context,
-    )
+    send_welcome_email_task.delay(email=new_user.email, context=context)
 
     token_dict = {
         "sub": str(new_user.id),

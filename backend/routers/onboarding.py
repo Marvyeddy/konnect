@@ -8,8 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.constants.cloudinary import upload_to_cloudinary
-from backend.core.rabbitmq import RabbitMQ
-from backend.dependencies import get_current_user, get_rabbit
+from backend.dependencies import get_current_user
 from backend.external.database import get_session
 
 from backend.models.user_profile import UserProfile
@@ -20,6 +19,7 @@ from backend.services.auth import AuthService
 
 from backend.core.logging import get_app_logger
 from backend.core.rate_limit import guard_decorator
+from backend.tasks.notification_tasks import notify_admins_vendor_onboarding
 
 onboarding_router = APIRouter()
 auth_service = AuthService()
@@ -97,7 +97,6 @@ async def onboard_vendor(
     image: Annotated[UploadFile | None, File()] = None,
     current_user: Annotated[Users | None, Depends(get_current_user)] = None,
     session: Annotated[AsyncSession, Depends(get_session)] = None,
-    rabbit: Annotated[RabbitMQ, Depends(get_rabbit)] = None,
 ):
     if not current_user:
         raise HTTPException(
@@ -215,18 +214,14 @@ async def onboard_vendor(
     await session.commit()
     await session.refresh(vendor_record)
 
-    await rabbit.publish(
-        "vendor.updated" if existing_vendor else "vendor.onboarded",
-        {
-            "vendor_id": str(vendor_record.user_id),
-            "business_name": vendor_data.business_name,
-            "is_update": bool(existing_vendor),
-        },
+    notify_admins_vendor_onboarding.delay(
+        vendor_id=vendor_record.id,
+        business_name=vendor_record.business_name,
+        session=session,
+        is_update=existing_vendor is None,
     )
 
     return {
-        "message": "Vendor onboarding configuration processed successfully",
+        "message": "Vendor onboarding submitted successfully",
         "vendor_id": str(vendor_record.id),
-        "license_url": license_url,
-        "image_url": image_url,
     }

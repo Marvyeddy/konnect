@@ -23,7 +23,7 @@ services:
       CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
       CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
       ELASTICSEARCH_URL: ${ELASTICSEARCH_URL}
-      RABBITMQ_URL: ${RABBITMQ_URL}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
     depends_on:
       db:
         condition: service_healthy
@@ -33,25 +33,25 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-  admin-notification-worker:
+  
+  celery:
     image: mace11/konnect:latest
-    container_name: admin-notification--worker
-    restart: unless-stopped
-    command: uv run python -m backend.workers.admin_notification_worker
+    container_name: konnect-celery
+    command: >
+      uv run celery
+      -A backend.celery_app:celery_app
+      worker
+      --loglevel=info
     env_file:
       - .env
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      JWT_KEY: ${JWT_KEY}
-      JWT_ALG: ${JWT_ALG}
-      ELASTICSEARCH_URL: ${ELASTICSEARCH_URL}
-      RABBITMQ_URL: ${RABBITMQ_URL}
     depends_on:
-      db:
-        condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
   db:
     image: postgres:17
     container_name: postgres-db

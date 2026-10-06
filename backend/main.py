@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 import cloudinary
 from fastapi import FastAPI
@@ -5,7 +6,6 @@ from guard.middleware import SecurityMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from backend.core.config import config as cfg
-from backend.core.rabbitmq import RabbitMQ
 from backend.core.rate_limit import guard_decorator, security_config
 from backend.errors import require_error
 from backend.internal.admin import admin_router
@@ -19,6 +19,7 @@ from backend.routers.reviews import review_router
 from backend.routers.users import user_router
 from backend.routers.vendors import vendor_router
 from backend.core.logging import get_app_logger
+from backend.services.notifications_listener import listen_for_notifications
 
 version = "v1"
 logger = get_app_logger(__name__)
@@ -26,14 +27,20 @@ logger = get_app_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.rabbit = RabbitMQ(cfg.RABBITMQ_URL)
-    await app.state.rabbit.connect()
-    logger.info("RabbitMQ connected")
+    notification_listener = asyncio.create_task(listen_for_notifications())
+
+    print("Notification listener started")
+
+    yield
+
+    notification_listener.cancel()
+
     try:
-        yield
-    finally:
-        await app.state.rabbit.close()
-        logger.info("RabbitMQ connection closed")
+        await notification_listener
+    except asyncio.CancelledError:
+        pass
+
+    print("Notification listener stopped")
 
 
 app = FastAPI(
